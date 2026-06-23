@@ -36,20 +36,39 @@ const EVENT_COLORS = [
 
 // ── STORAGE ───────────────────────────────────────────────────────────────────
 const todayKey   = () => new Date().toISOString().slice(0,10)
-const loadEvents = () => { try { return JSON.parse(localStorage.getItem('hud_events')||'[]') } catch { return [] } }
-const saveEvents = e => { try { localStorage.setItem('hud_events',JSON.stringify(e)) } catch {} }
-const loadData   = () => { try { return JSON.parse(localStorage.getItem('hud_v4')||'{}') } catch { return {} } }
-const saveData   = d => { try { localStorage.setItem('hud_v4',JSON.stringify(d)) } catch {} }
-const loadVision = () => { try { return JSON.parse(localStorage.getItem('hud_vision')||'null') } catch { return null } }
-const saveVision = v => { try { localStorage.setItem('hud_vision',JSON.stringify(v)) } catch {} }
-const loadTheme  = () => { try { return localStorage.getItem('hud_theme')||'dark' } catch { return 'dark' } }
-const saveTheme  = t => { try { localStorage.setItem('hud_theme',t) } catch {} }
-const loadName   = () => { try { return localStorage.getItem('forge_name')||'' } catch { return '' } }
-const saveName   = n => { try { localStorage.setItem('forge_name',n) } catch {} }
-const loadAvoiding = () => { try { return JSON.parse(localStorage.getItem('forge_avoiding')||'[]') } catch { return [] } }
-const saveAvoiding = a => { try { localStorage.setItem('forge_avoiding',JSON.stringify(a)) } catch {} }
-const loadStudy  = () => { try { return JSON.parse(localStorage.getItem('forge_study')||'null') } catch { return null } }
-const saveStudy  = s => { try { localStorage.setItem('forge_study',JSON.stringify(s)) } catch {} }
+
+// ── per-profile namespacing ──
+// All app data is keyed under the active profile so two people on the same device
+// keep entirely separate FORGEs. Honest note: the passcode is a local privacy lock,
+// not real security, and data does not sync between devices.
+let ACTIVE_PROFILE = null
+const setActiveProfile = id => { ACTIVE_PROFILE = id }
+const PK = k => ACTIVE_PROFILE ? ('p:'+ACTIVE_PROFILE+':'+k) : k
+const APP_KEYS = ['hud_events','hud_v4','hud_vision','hud_theme','forge_name','forge_avoiding','forge_study','hud_alert_lead']
+
+const hashPass = s => { let h=5381; for(let i=0;i<s.length;i++){ h=(((h<<5)+h)+s.charCodeAt(i))|0 } return (h>>>0).toString(36) }
+const loadProfiles = () => { try { return JSON.parse(localStorage.getItem('forge_profiles')||'[]') } catch { return [] } }
+const saveProfiles = p => { try { localStorage.setItem('forge_profiles',JSON.stringify(p)) } catch {} }
+const loadLastProfile = () => { try { return localStorage.getItem('forge_last_profile')||'' } catch { return '' } }
+const saveLastProfile = id => { try { localStorage.setItem('forge_last_profile',id) } catch {} }
+// when the first profile is created, fold any pre-profile data into it so nothing is lost
+const migrateLegacyInto = id => { try { APP_KEYS.forEach(k=>{ const v=localStorage.getItem(k); const nk='p:'+id+':'+k; if(v!=null && localStorage.getItem(nk)==null) localStorage.setItem(nk,v) }) } catch {} }
+const deleteProfileData = id => { try { APP_KEYS.forEach(k=>localStorage.removeItem('p:'+id+':'+k)) } catch {} }
+
+const loadEvents = () => { try { return JSON.parse(localStorage.getItem(PK('hud_events'))||'[]') } catch { return [] } }
+const saveEvents = e => { try { localStorage.setItem(PK('hud_events'),JSON.stringify(e)) } catch {} }
+const loadData   = () => { try { return JSON.parse(localStorage.getItem(PK('hud_v4'))||'{}') } catch { return {} } }
+const saveData   = d => { try { localStorage.setItem(PK('hud_v4'),JSON.stringify(d)) } catch {} }
+const loadVision = () => { try { return JSON.parse(localStorage.getItem(PK('hud_vision'))||'null') } catch { return null } }
+const saveVision = v => { try { localStorage.setItem(PK('hud_vision'),JSON.stringify(v)) } catch {} }
+const loadTheme  = () => { try { return localStorage.getItem(PK('hud_theme'))||'dark' } catch { return 'dark' } }
+const saveTheme  = t => { try { localStorage.setItem(PK('hud_theme'),t) } catch {} }
+const loadName   = () => { try { return localStorage.getItem(PK('forge_name'))||'' } catch { return '' } }
+const saveName   = n => { try { localStorage.setItem(PK('forge_name'),n) } catch {} }
+const loadAvoiding = () => { try { return JSON.parse(localStorage.getItem(PK('forge_avoiding'))||'[]') } catch { return [] } }
+const saveAvoiding = a => { try { localStorage.setItem(PK('forge_avoiding'),JSON.stringify(a)) } catch {} }
+const loadStudy  = () => { try { return JSON.parse(localStorage.getItem(PK('forge_study'))||'null') } catch { return null } }
+const saveStudy  = s => { try { localStorage.setItem(PK('forge_study'),JSON.stringify(s)) } catch {} }
 const DEFAULT_STUDY = { subjects:[], notes:[] }
 
 // spaced-repetition recall: intervals in days, user-driven (remembered advances, forgot resets)
@@ -2016,7 +2035,7 @@ function useIsMobile(){
 }
 const NAV=[['calendar','Calendar','01'],['today','Today','02'],['study','Study','03'],['avoiding','Avoiding','04'],['intel','Looking Back','05'],['vision','Vision','06'],['journal','Journal','07']]
 
-export default function App(){
+function ForgeApp({profileName,onLock}){
   const [booting,setBooting]=useState(true)
   const [ready,setReady]=useState(false)
   const [view,setView]=useState('calendar')
@@ -2062,11 +2081,13 @@ export default function App(){
         <div className="topbar-m">
           <Ember size={24} color={C.blue} glow/>
           <span style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:17,fontWeight:600,letterSpacing:'0.14em',color:C.text}}>FORGE</span>
-          {name&&<span style={{fontFamily:"'Inter',-apple-system,system-ui,sans-serif",fontSize:11,color:C.dim}}>· {name}</span>}
+          {profileName&&<span style={{fontFamily:"'Inter',-apple-system,system-ui,sans-serif",fontSize:11,color:C.dim}}>· {profileName}</span>}
           <div style={{flex:1}}/>
           <span style={{fontFamily:"'Inter',-apple-system,system-ui,sans-serif",fontSize:12,color:streak>0?C.amber:C.dim,fontWeight:600}}>🔥 {streak}</span>
           <button onClick={()=>setTheme(theme==='dark'?'light':'dark')} title="Theme"
             style={{background:'none',border:`1px solid ${C.border}`,borderRadius:9,color:C.muted,fontSize:15,width:36,height:36,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>{theme==='dark'?'☀️':'🌙'}</button>
+          <button onClick={()=>onLock&&onLock()} title="Lock / switch profile"
+            style={{background:'none',border:`1px solid ${C.border}`,borderRadius:9,color:C.muted,fontSize:14,width:36,height:36,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>🔒</button>
         </div>
 
         <div style={{display:'flex',minHeight:'100vh',position:'relative',zIndex:1,opacity:ready?1:0,transition:'opacity 0.5s ease'}}>
@@ -2074,18 +2095,12 @@ export default function App(){
           <nav className="only-desktop" style={{width:220,flexShrink:0,background:'var(--surface)',borderRight:`1px solid ${C.border}`,padding:'24px 12px',display:'flex',flexDirection:'column',gap:2,position:'sticky',top:0,height:'100vh',zIndex:10,backdropFilter:'blur(16px)'}}>
             <div style={{display:'flex',alignItems:'center',gap:11,marginBottom:26,paddingLeft:8}}>
               <div style={{animation:'glowPulse 7s ease-in-out infinite'}}><Ember size={30} color={C.blue} glow/></div>
-              <div style={{minWidth:0}}>
+              <div style={{minWidth:0,flex:1}}>
                 <div style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:20,fontWeight:600,color:C.text,lineHeight:1,letterSpacing:'0.14em'}}>FORGE</div>
-                {editingName?(
-                  <input autoFocus value={name} onChange={e=>setName(e.target.value)} onBlur={()=>setEditingName(false)}
-                    onKeyDown={e=>{if(e.key==='Enter')setEditingName(false)}} placeholder="your name"
-                    style={{marginTop:4,width:'100%',background:'transparent',border:'none',borderBottom:`1px solid ${C.border2}`,color:C.muted,fontSize:10,fontFamily:"'Inter',-apple-system,system-ui,sans-serif",outline:'none',padding:'1px 0'}}/>
-                ):(
-                  <div onClick={()=>setEditingName(true)} title="Click to set your name"
-                    style={{fontFamily:"'Inter',-apple-system,system-ui,sans-serif",fontSize:9,color:C.muted,letterSpacing:'0.08em',marginTop:4,cursor:'pointer'}}>
-                    {name?`${name} · made, not born`:'set your name ✎'}
-                  </div>
-                )}
+                <div style={{display:'flex',alignItems:'center',gap:6,marginTop:4}}>
+                  <span style={{fontFamily:"'Inter',-apple-system,system-ui,sans-serif",fontSize:10,color:C.muted,letterSpacing:'0.06em',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{profileName||'made, not born'}</span>
+                  <button onClick={()=>onLock&&onLock()} title="Lock / switch profile" style={{background:'none',border:'none',color:C.dim,fontSize:11,cursor:'pointer',padding:0,lineHeight:1}}>🔒</button>
+                </div>
               </div>
             </div>
             {NAV.map(([id,label,code])=>(
@@ -2297,8 +2312,8 @@ function JournalView({vision,setVision}){
 // ════════════════════════════════════════════════════════════════════════════════
 // CALENDAR EXPORT (.ics) — so your phone's own calendar alarms you
 // ════════════════════════════════════════════════════════════════════════════════
-const loadLead=()=>{ try{ const v=Number(localStorage.getItem('hud_alert_lead')); return Number.isFinite(v)?v:10 }catch{ return 10 } }
-const saveLead=v=>{ try{ localStorage.setItem('hud_alert_lead',String(v)) }catch{} }
+const loadLead=()=>{ try{ const v=Number(localStorage.getItem(PK('hud_alert_lead'))); return Number.isFinite(v)?v:10 }catch{ return 10 } }
+const saveLead=v=>{ try{ localStorage.setItem(PK('hud_alert_lead'),String(v)) }catch{} }
 
 function downloadText(name,text,mime){
   try{
@@ -2357,4 +2372,102 @@ function buildICS(events,leadMin){
   })
   L.push('END:VCALENDAR')
   return L.join('\r\n')+'\r\n'
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PROFILES + PASSCODE GATE
+// Local privacy lock so two people share a device with separate data.
+// Not real security; data is not synced between devices.
+// ════════════════════════════════════════════════════════════════════════════════
+const AVATAR_COLORS=['#dca15f','#93a777','#cf7b6b','#7fa8c9','#b58fd9','#5fb7a1','#d98a4a','#d98fb0']
+function avatarColor(s){ let h=0; for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0; return AVATAR_COLORS[h%AVATAR_COLORS.length] }
+
+function LoginGate({profiles,setProfiles,onUnlock}){
+  const G={bg:'#14110e',card:'#1c1815',card2:'#231e1a',border:'rgba(224,168,99,0.18)',gold:'#dca15f',goldDim:'rgba(224,168,99,0.12)',text:'#ece2d5',muted:'#9c8d7c',dim:'#5c5045',red:'#cf7b6b'}
+  const F="'Inter',-apple-system,system-ui,sans-serif", SER="'Fraunces',Georgia,serif"
+  const [mode,setMode]=useState(profiles.length?'pick':'create')
+  const [selId,setSelId]=useState(loadLastProfile()||'')
+  const [pass,setPass]=useState('')
+  const [nm,setNm]=useState('')
+  const [p1,setP1]=useState(''),[p2,setP2]=useState('')
+  const [err,setErr]=useState('')
+  const sel=profiles.find(p=>p.id===selId)
+
+  const unlock=()=>{ if(!sel)return; if(hashPass(pass)!==sel.passHash){ setErr('Wrong passcode'); return } onUnlock(sel.id) }
+  const create=()=>{
+    const name=nm.trim()
+    if(!name){ setErr('Add a name'); return }
+    if(p1.length<4){ setErr('Passcode needs at least 4 characters'); return }
+    if(p1!==p2){ setErr("Passcodes don't match"); return }
+    const id='u_'+Date.now().toString(36)+Math.round(Math.random()*1e4).toString(36)
+    const next=[...profiles,{id,name,passHash:hashPass(p1),createdAt:Date.now()}]
+    if(profiles.length===0) migrateLegacyInto(id)   // fold any existing data into the first profile
+    saveProfiles(next); setProfiles(next); onUnlock(id)
+  }
+  const removeProfile=(p)=>{ if(!confirmSafe('Delete "'+p.name+'" and ALL its data on this device? This cannot be undone.'))return; deleteProfileData(p.id); const next=profiles.filter(x=>x.id!==p.id); saveProfiles(next); setProfiles(next); if(selId===p.id)setSelId(''); if(next.length===0)setMode('create') }
+
+  const input={width:'100%',background:G.card2,border:`1px solid ${G.border}`,borderRadius:9,color:G.text,fontSize:16,padding:'12px 13px',outline:'none',fontFamily:F,boxSizing:'border-box',marginBottom:10}
+  const goldBtn={width:'100%',fontFamily:F,fontSize:14,fontWeight:600,padding:'12px',borderRadius:9,cursor:'pointer',border:'none',background:G.gold,color:'#1a140d',marginTop:4}
+
+  return(
+    <div style={{position:'fixed',inset:0,background:G.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflow:'auto'}}>
+      <div style={{position:'absolute',inset:0,background:'radial-gradient(ellipse 90% 60% at 50% 118%,'+G.goldDim+' 0%,transparent 62%)',pointerEvents:'none'}}/>
+      <div style={{position:'relative',width:380,maxWidth:'100%'}}>
+        <div style={{textAlign:'center',marginBottom:26}}>
+          <div style={{display:'flex',justifyContent:'center',marginBottom:12}}><Ember size={52} color={G.gold} glow/></div>
+          <div style={{fontFamily:SER,fontSize:30,fontWeight:600,letterSpacing:'0.18em',color:G.text}}>FORGE</div>
+          <div style={{fontFamily:F,fontSize:9,letterSpacing:'0.32em',color:G.dim,marginTop:6,textTransform:'uppercase'}}>made, not born</div>
+        </div>
+
+        <div style={{background:G.card,border:`1px solid ${G.border}`,borderRadius:14,padding:'22px 20px',boxShadow:'0 10px 40px rgba(0,0,0,0.45)'}}>
+          {mode==='pick'?(
+            <div>
+              {!sel?(<>
+                <div style={{fontFamily:SER,fontSize:17,fontWeight:600,color:G.text,marginBottom:14}}>Who&rsquo;s this?</div>
+                {profiles.map(p=>(
+                  <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'11px',borderRadius:10,cursor:'pointer',border:`1px solid ${G.border}`,marginBottom:8,background:G.card2}}
+                    onClick={()=>{setSelId(p.id);setPass('');setErr('')}}>
+                    <div style={{width:38,height:38,borderRadius:'50%',background:avatarColor(p.name),display:'flex',alignItems:'center',justifyContent:'center',fontFamily:SER,fontSize:17,fontWeight:600,color:'#1a140d',flexShrink:0}}>{(p.name[0]||'?').toUpperCase()}</div>
+                    <span style={{flex:1,fontFamily:F,fontSize:14,fontWeight:600,color:G.text}}>{p.name}</span>
+                    <span onClick={e=>{e.stopPropagation();removeProfile(p)}} title="Delete profile" style={{color:G.dim,fontSize:13,cursor:'pointer',padding:'2px 6px'}}>×</span>
+                  </div>
+                ))}
+                <button onClick={()=>{setMode('create');setErr('');setNm('');setP1('');setP2('')}} style={{width:'100%',fontFamily:F,fontSize:13,fontWeight:600,padding:'11px',borderRadius:9,cursor:'pointer',border:`1px dashed ${G.border}`,background:'transparent',color:G.muted,marginTop:4}}>+ Add someone</button>
+              </>):(<>
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
+                  <div style={{width:42,height:42,borderRadius:'50%',background:avatarColor(sel.name),display:'flex',alignItems:'center',justifyContent:'center',fontFamily:SER,fontSize:19,fontWeight:600,color:'#1a140d'}}>{(sel.name[0]||'?').toUpperCase()}</div>
+                  <div><div style={{fontFamily:SER,fontSize:17,fontWeight:600,color:G.text}}>{sel.name}</div><div onClick={()=>{setSelId('');setErr('')}} style={{fontFamily:F,fontSize:11,color:G.muted,cursor:'pointer'}}>← not you?</div></div>
+                </div>
+                <input autoFocus type="password" value={pass} onChange={e=>{setPass(e.target.value);setErr('')}} onKeyDown={e=>{if(e.key==='Enter')unlock()}} placeholder="Passcode" style={input}/>
+                {err&&<div style={{fontFamily:F,fontSize:12,color:G.red,marginBottom:8}}>{err}</div>}
+                <button onClick={unlock} style={goldBtn}>Unlock</button>
+              </>)}
+            </div>
+          ):(
+            <div>
+              <div style={{fontFamily:SER,fontSize:17,fontWeight:600,color:G.text,marginBottom:4}}>{profiles.length?'New profile':'Set up your profile'}</div>
+              <div style={{fontFamily:F,fontSize:11.5,color:G.muted,marginBottom:16,lineHeight:1.5}}>{profiles.length?'Separate space, separate passcode.':'This locks your space on this device. Your existing data moves into this first profile.'}</div>
+              <input value={nm} onChange={e=>{setNm(e.target.value);setErr('')}} placeholder="Name" style={input}/>
+              <input type="password" value={p1} onChange={e=>{setP1(e.target.value);setErr('')}} placeholder="Passcode (4+ characters)" style={input}/>
+              <input type="password" value={p2} onChange={e=>{setP2(e.target.value);setErr('')}} onKeyDown={e=>{if(e.key==='Enter')create()}} placeholder="Confirm passcode" style={input}/>
+              {err&&<div style={{fontFamily:F,fontSize:12,color:G.red,marginBottom:8}}>{err}</div>}
+              <button onClick={create} style={goldBtn}>Create &amp; enter</button>
+              {profiles.length>0&&<button onClick={()=>{setMode('pick');setErr('')}} style={{width:'100%',fontFamily:F,fontSize:12,padding:'10px',borderRadius:9,cursor:'pointer',border:'none',background:'transparent',color:G.muted,marginTop:6}}>← back</button>}
+            </div>
+          )}
+        </div>
+        <div style={{fontFamily:F,fontSize:10.5,color:G.dim,textAlign:'center',marginTop:14,lineHeight:1.5}}>A local lock for privacy — not bank-grade security. Forgot a passcode? There&rsquo;s no recovery; you&rsquo;d delete the profile and start fresh.</div>
+      </div>
+    </div>
+  )
+}
+
+export default function App(){
+  const [profiles,setProfiles]=useState(loadProfiles)
+  const [activeId,setActiveId]=useState(null)
+  const unlock=id=>{ setActiveProfile(id); saveLastProfile(id); setActiveId(id) }
+  const lock=()=>{ setActiveProfile(null); setActiveId(null) }
+  if(!activeId) return <LoginGate profiles={profiles} setProfiles={setProfiles} onUnlock={unlock}/>
+  const me=profiles.find(p=>p.id===activeId)
+  return <ForgeApp key={activeId} profileName={me?me.name:''} onLock={lock}/>
 }
