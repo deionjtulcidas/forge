@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 
 // ════════════════════════════════════════════════════════════════════════════════
-// FORGE — personal planner. Single file. Data lives in the browser (localStorage),
-// namespaced per profile. Storage keys are kept identical to prior versions so
-// existing data (calendar, streak, profiles, etc.) survives this rewrite.
+// FORGE — personal operating system. Single file. Data lives in the browser
+// (localStorage), namespaced per profile. Storage keys unchanged from prior
+// versions so existing data (calendar, streak, profiles, money…) survives.
 // ════════════════════════════════════════════════════════════════════════════════
 
 const uid = p => p + '_' + Date.now() + '_' + Math.round(Math.random() * 1e4)
@@ -23,7 +23,7 @@ const saveProfiles = p => { try { localStorage.setItem('forge_profiles', JSON.st
 const loadLastProfile = () => { try { return localStorage.getItem('forge_last_profile') || '' } catch { return '' } }
 const saveLastProfile = id => { try { localStorage.setItem('forge_last_profile', id) } catch {} }
 const migrateLegacyInto = id => { try { APP_KEYS.forEach(k => { const v = localStorage.getItem(k); const nk = 'p:' + id + ':' + k; if (v != null && localStorage.getItem(nk) == null) localStorage.setItem(nk, v) }) } catch {} }
-const deleteProfileData = id => { try { APP_KEYS.forEach(k => localStorage.removeItem('p:' + id + ':' + k)); ['hud_v4', 'hud_events', 'hud_vision', 'forge_avoiding', 'forge_finance'].forEach(() => {}) } catch {} }
+const deleteProfileData = id => { try { APP_KEYS.forEach(k => localStorage.removeItem('p:' + id + ':' + k)) } catch {} }
 
 // ── stores ──
 const loadEvents = () => { try { return JSON.parse(localStorage.getItem(PK('hud_events')) || '[]') } catch { return [] } }
@@ -34,8 +34,6 @@ const loadVision = () => { try { return JSON.parse(localStorage.getItem(PK('hud_
 const saveVision = v => { try { localStorage.setItem(PK('hud_vision'), JSON.stringify(v)) } catch {} }
 const loadTheme = () => { try { return localStorage.getItem(PK('hud_theme')) || 'dark' } catch { return 'dark' } }
 const saveTheme = t => { try { localStorage.setItem(PK('hud_theme'), t) } catch {} }
-const loadName = () => { try { return localStorage.getItem(PK('forge_name')) || '' } catch { return '' } }
-const saveName = n => { try { localStorage.setItem(PK('forge_name'), n) } catch {} }
 const loadAvoiding = () => { try { return JSON.parse(localStorage.getItem(PK('forge_avoiding')) || '[]') } catch { return [] } }
 const saveAvoiding = a => { try { localStorage.setItem(PK('forge_avoiding'), JSON.stringify(a)) } catch {} }
 const loadFinance = () => { try { return JSON.parse(localStorage.getItem(PK('forge_finance')) || 'null') } catch { return null } }
@@ -44,7 +42,25 @@ const loadMe = () => { try { return JSON.parse(localStorage.getItem(PK('forge_me
 const saveMe = m => { try { localStorage.setItem(PK('forge_me'), JSON.stringify(m)) } catch {} }
 const loadGoals = () => { try { return JSON.parse(localStorage.getItem(PK('forge_goals')) || 'null') } catch { return null } }
 const saveGoals = g => { try { localStorage.setItem(PK('forge_goals'), JSON.stringify(g)) } catch {} }
+const loadLead = () => { try { const v = Number(localStorage.getItem(PK('hud_alert_lead'))); return Number.isFinite(v) ? v : 10 } catch { return 10 } }
+const saveLead = v => { try { localStorage.setItem(PK('hud_alert_lead'), String(v)) } catch {} }
 
+// ── defaults ──
+const DEFAULT_VISION = { items: [], wins: [] }
+const DEFAULT_FINANCE = {
+  debts: [
+    { id: 'd_cc', name: 'Discover Card', balance: 2856.86, startBalance: 2856.86, apr: 24.99, monthlyPayment: 300, color: '#b0584a' },
+    { id: 'd_loan', name: 'Student Loans', balance: 20000, startBalance: 20000, apr: 6, monthlyPayment: 250, color: '#5a78a8' },
+  ],
+  emergencyGoal: 1000, emergencySaved: 0, payments: [],
+  milestones: [
+    { id: uid('m'), text: 'Pay off the Discover card', done: false },
+    { id: uid('m'), text: 'Build a $1,000 emergency fund', done: false },
+    { id: uid('m'), text: 'Start attacking the student loans', done: false },
+    { id: uid('m'), text: 'Hit $10,000 paid on loans', done: false },
+    { id: uid('m'), text: 'Debt-free', done: false },
+  ],
+}
 const LEVELS = ['—', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2']
 const DEFAULT_ME = {
   heightIn: 65, startWeight: 180, goalWeight: 155, weighIns: [],
@@ -56,7 +72,7 @@ const DEFAULT_ME = {
     { id: 'r5', day: 6, name: 'Cardio + core', items: 'Incline walk 30–40 min\nCore circuit ×3 rounds' },
   ],
   career: {
-    current: { title: 'Program Coordinator', company: 'CLEAResult', notes: 'Energy efficiency programs — building program, data & client experience' },
+    current: { title: 'Program Coordinator', company: 'CLEAResult', notes: 'Energy efficiency programs — program, data & client experience' },
     skills: ['Program coordination', 'Data analysis', 'Excel', 'Power BI', 'Salesforce', 'Project tracking', 'Stakeholder work'],
     past: [],
     target: 'United Nations — Program Management · International Development · Data & Analytics',
@@ -65,7 +81,11 @@ const DEFAULT_ME = {
     { id: 'es', name: 'Spanish', flag: '🇪🇸', level: 2, target: 4 },
     { id: 'fr', name: 'French', flag: '🇫🇷', level: 0, target: 3 },
   ],
-  guitar: { sessions: [] },
+  hobbies: [
+    { id: 'h_guitar', name: 'Guitar', xp: 18, log: [] },
+    { id: 'h_write', name: 'Writing · Substack', xp: 10, log: [] },
+    { id: 'h_fly', name: 'Aviation knowledge', xp: 6, log: [] },
+  ],
 }
 const DEFAULT_GOALS = {
   chain: [
@@ -104,60 +124,8 @@ function buildWeekTemplate(me) {
   ]
   return [...gym, ...fixed]
 }
-const loadLead = () => { try { const v = Number(localStorage.getItem(PK('hud_alert_lead'))); return Number.isFinite(v) ? v : 10 } catch { return 10 } }
-const saveLead = v => { try { localStorage.setItem(PK('hud_alert_lead'), String(v)) } catch {} }
 
-const DEFAULT_VISION = { items: [], focus: [{ id: uid('f'), text: '', done: false }, { id: uid('f'), text: '', done: false }, { id: uid('f'), text: '', done: false }], wins: [] }
-const DEFAULT_FINANCE = {
-  debts: [
-    { id: 'd_cc', name: 'Discover Card', balance: 2856.86, startBalance: 2856.86, apr: 24.99, monthlyPayment: 300, color: '#c65949' },
-    { id: 'd_loan', name: 'Student Loans', balance: 20000, startBalance: 20000, apr: 6, monthlyPayment: 250, color: '#5a78a8' },
-  ],
-  emergencyGoal: 1000, emergencySaved: 0,
-  payments: [],
-  milestones: [
-    { id: uid('m'), text: 'Pay off the Discover card', done: false },
-    { id: uid('m'), text: 'Build a $1,000 emergency fund', done: false },
-    { id: uid('m'), text: 'Start attacking the student loans', done: false },
-    { id: uid('m'), text: 'Hit $10,000 paid on loans', done: false },
-    { id: uid('m'), text: 'Debt-free', done: false },
-  ],
-}
-
-// ── stoic quotes (public-domain phrasings) ──
-const QUOTES = [
-  ['You have power over your mind — not outside events. Realize this, and you will find strength.', 'Marcus Aurelius'],
-  ['We suffer more often in imagination than in reality.', 'Seneca'],
-  ['It is not that we have a short time to live, but that we waste a lot of it.', 'Seneca'],
-  ['No man is free who is not master of himself.', 'Epictetus'],
-  ['First say to yourself what you would be; then do what you have to do.', 'Epictetus'],
-  ['Waste no more time arguing what a good man should be. Be one.', 'Marcus Aurelius'],
-  ['The impediment to action advances action. What stands in the way becomes the way.', 'Marcus Aurelius'],
-  ['He who fears death will never do anything worthy of a living man.', 'Seneca'],
-  ['Difficulties strengthen the mind, as labor does the body.', 'Seneca'],
-  ['If it is not right, do not do it; if it is not true, do not say it.', 'Marcus Aurelius'],
-  ['Luck is what happens when preparation meets opportunity.', 'Seneca'],
-  ['Wealth consists not in having great possessions, but in having few wants.', 'Epictetus'],
-  ['Begin at once to live, and count each separate day as a separate life.', 'Seneca'],
-  ['The best revenge is to be unlike him who performed the injury.', 'Marcus Aurelius'],
-  ['Man is not worried by real problems so much as by his imagined anxieties.', 'Epictetus'],
-  ['How long are you going to wait before you demand the best for yourself?', 'Epictetus'],
-  ['Confine yourself to the present.', 'Marcus Aurelius'],
-  ['A gem cannot be polished without friction, nor a man perfected without trials.', 'Seneca'],
-  ['You become what you give your attention to.', 'Epictetus'],
-  ['Very little is needed to make a happy life; it is all within yourself.', 'Marcus Aurelius'],
-]
 const wordCount = s => (s || '').trim().split(/\s+/).filter(Boolean).length
-const dayOfYear = () => { const n = new Date(); return Math.floor((n - new Date(n.getFullYear(), 0, 0)) / 86400000) }
-const dailyQuote = () => QUOTES[dayOfYear() % QUOTES.length]
-
-const BOOT_LINES = [
-  'Lighting the forge...',
-  'You are not finished. That is the point.',
-  'What you avoid today is still here tomorrow.',
-  'So pick one hard thing. Start there.',
-  'Back to work.',
-]
 
 const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAYS_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -173,18 +141,16 @@ const EVENT_COLORS = [
   { id: 'pink', bg: 'rgba(168,110,134,0.9)', border: '#a86e86' },
 ]
 const getEvColor = id => EVENT_COLORS.find(c => c.id === id) || EVENT_COLORS[0]
-
 const money = (n, cents = true) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 })
 
-// ── theme tokens ──
+// ── theme ──
 const THEME_TOKENS = `
   :root, .app-root[data-theme="dark"]{
     --bg:#0b0b0c; --surface:#111113; --surface2:#17171a; --surface3:#1f1f23;
     --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.18);
     --blue:#f2f2f3; --blueBright:#ffffff; --blueDim:rgba(255,255,255,0.06); --blueGlow:rgba(255,255,255,0.14);
     --text:#ececee; --muted:#8a8f98; --dim:#4d5057;
-    --amber:#b9975f; --amberGlow:rgba(185,151,95,0.25);
-    --green:#7d9b72; --greenGlow:rgba(125,155,114,0.25); --red:#c65949;
+    --amber:#b9975f; --green:#7d9b72; --red:#c65949; --holo:#63b0c6; --holoDim:rgba(99,176,198,0.12);
     --vignette:rgba(0,0,0,0.5); --card-shadow:0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 24px rgba(0,0,0,0.35); --card-shadow-sel:0 12px 32px rgba(0,0,0,0.5);
   }
   .app-root[data-theme="light"]{
@@ -192,8 +158,7 @@ const THEME_TOKENS = `
     --border:rgba(0,0,0,0.09); --border2:rgba(0,0,0,0.22);
     --blue:#17181a; --blueBright:#000000; --blueDim:rgba(0,0,0,0.05); --blueGlow:rgba(0,0,0,0.12);
     --text:#17181a; --muted:#5d6067; --dim:#9a9da4;
-    --amber:#8f7136; --amberGlow:rgba(143,113,54,0.2);
-    --green:#4e6b45; --greenGlow:rgba(78,107,69,0.2); --red:#a8412f;
+    --amber:#8f7136; --green:#4e6b45; --red:#a8412f; --holo:#2f7f97; --holoDim:rgba(47,127,151,0.1);
     --vignette:rgba(244,244,245,0.4); --card-shadow:0 4px 14px rgba(0,0,0,0.06); --card-shadow-sel:0 8px 22px rgba(0,0,0,0.12);
   }
 `
@@ -201,9 +166,8 @@ const C = {
   bg: 'var(--bg)', surface: 'var(--surface)', surface2: 'var(--surface2)', surface3: 'var(--surface3)',
   border: 'var(--border)', border2: 'var(--border2)', blue: 'var(--blue)', blueBright: 'var(--blueBright)',
   blueDim: 'var(--blueDim)', blueGlow: 'var(--blueGlow)', text: 'var(--text)', muted: 'var(--muted)', dim: 'var(--dim)',
-  amber: 'var(--amber)', amberGlow: 'var(--amberGlow)', green: 'var(--green)', greenGlow: 'var(--greenGlow)', red: 'var(--red)',
+  amber: 'var(--amber)', green: 'var(--green)', red: 'var(--red)', holo: 'var(--holo)', holoDim: 'var(--holoDim)',
 }
-const SER = "'Inter',-apple-system,system-ui,sans-serif"
 const F = "'Inter',-apple-system,system-ui,sans-serif"
 
 const CSS = `
@@ -211,14 +175,18 @@ const CSS = `
   ${THEME_TOKENS}
   *{box-sizing:border-box}
   .app-root{min-height:100vh;background:var(--bg);color:var(--text);font-family:${F}}
-  @keyframes glowPulse{0%,100%{opacity:0.5}50%{opacity:1}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes modalIn{from{opacity:0;transform:scale(0.97)}to{opacity:1;transform:scale(1)}}
   @keyframes dotPulse{0%,100%{opacity:0.4}50%{opacity:1}}
-  @keyframes blink{50%{opacity:0}}
   @keyframes slideIn{from{opacity:0}to{opacity:1}}
+  @keyframes holoPulse{0%,100%{opacity:0.85}50%{opacity:1}}
+  @keyframes scanMove{from{transform:translateY(0)}to{transform:translateY(8px)}}
   ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:6px}::-webkit-scrollbar-track{background:transparent}
   input,textarea,select{font-family:${F}}
+  .topnav{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:8px;height:56px;padding:0 26px;background:var(--surface);border-bottom:1px solid var(--border);backdrop-filter:blur(14px)}
+  .topnav .navbtn{position:relative;background:none;border:none;cursor:pointer;padding:0 13px;height:56px;font-family:${F};font-size:11px;font-weight:600;letter-spacing:0.09em;text-transform:uppercase;color:var(--muted)}
+  .topnav .navbtn.active{color:var(--blue)}
+  .topnav .navbtn.active::after{content:'';position:absolute;left:10px;right:10px;bottom:0;height:2px;background:var(--blue)}
   .topbar-m,.bottom-nav{display:none}
   .topbar-m{position:sticky;top:0;z-index:40;align-items:center;gap:10px;padding:11px 16px;background:var(--surface);border-bottom:1px solid var(--border);backdrop-filter:blur(16px)}
   .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surface);border-top:1px solid var(--border);padding:6px 2px calc(6px + env(safe-area-inset-bottom));backdrop-filter:blur(16px)}
@@ -229,13 +197,13 @@ const CSS = `
     .bottom-nav{display:flex !important}
     .main-pad{padding:16px 14px 96px !important}
     .modal-wrap{align-items:flex-end !important;padding:0 !important}
-    .modal-card{width:100% !important;max-width:100% !important;border-radius:16px 16px 0 0 !important;max-height:92vh !important}
+    .modal-card{width:100% !important;max-width:100% !important;border-radius:8px 8px 0 0 !important;max-height:92vh !important}
     input,textarea,select,button{font-size:16px}
   }
 `
 
 // ── icon: sharp forge mark ──
-function Ember({ size = 40, color = 'var(--blue)', glow = false }) {
+function Ember({ size = 40, color = 'var(--blue)' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" style={{ display: 'block' }}>
       <path d="M32 5 L45 27 L38 31 L49 47 L32 59 L15 47 L26 31 L19 27 Z" fill={color} />
@@ -253,7 +221,7 @@ function Background() {
 }
 
 function Panel({ children, style = {}, onClick }) {
-  return <div onClick={onClick} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'var(--card-shadow)', ...style }}>{children}</div>
+  return <div onClick={onClick} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, boxShadow: 'var(--card-shadow)', ...style }}>{children}</div>
 }
 
 function LiveClock() {
@@ -262,26 +230,10 @@ function LiveClock() {
   return <span style={{ fontFamily: F, fontSize: 13, color: C.muted, letterSpacing: '0.04em' }}>{t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
 }
 
-function DailyQuote({ style = {} }) {
-  const [q, a] = dailyQuote()
-  return (
-    <div style={{ borderLeft: `3px solid ${C.amber}`, paddingLeft: 14, ...style }}>
-      <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.16em', color: C.dim, textTransform: 'uppercase', marginBottom: 4 }}>From the Stoics · {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
-      <div style={{ fontFamily: SER, fontSize: 14, color: C.text, lineHeight: 1.4, fontStyle: 'italic' }}>&ldquo;{q}&rdquo;</div>
-      <div style={{ fontFamily: F, fontSize: 11, color: C.muted, marginTop: 3 }}>— {a}</div>
-    </div>
-  )
-}
-
-function NavItem({ code, label, active, onClick, badge }) {
-  return (
-    <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', borderRadius: 4, cursor: 'pointer', border: 'none', background: active ? C.blueDim : 'transparent', width: '100%', textAlign: 'left', position: 'relative' }}>
-      <span style={{ fontFamily: SER, fontSize: 10, color: active ? C.blue : C.dim, minWidth: 16 }}>{code}</span>
-      <span style={{ fontFamily: F, fontSize: 11.5, fontWeight: active ? 700 : 500, color: active ? C.blue : C.muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</span>
-      {badge && <span style={{ position: 'absolute', right: 12, width: 7, height: 7, borderRadius: '50%', background: C.red, boxShadow: `0 0 6px ${C.red}`, animation: 'dotPulse 1.6s ease-in-out infinite' }} />}
-    </button>
-  )
-}
+const obtn = c => ({ fontFamily: F, fontSize: 12, fontWeight: 600, padding: '8px 13px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${c}`, background: 'transparent', color: c, whiteSpace: 'nowrap' })
+const lbl = { fontFamily: F, fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.dim, marginBottom: 5, display: 'block' }
+const fld = { width: '100%', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 3, color: C.text, fontSize: 13, padding: '9px 11px', outline: 'none', fontFamily: F, resize: 'vertical' }
+const H1 = ({ children }) => <h1 style={{ fontFamily: F, fontSize: 'clamp(22px,3.4vw,28px)', fontWeight: 800, letterSpacing: '-0.01em' }}>{children}</h1>
 
 // ════════════════════════════════════════════════════════════════════════════════
 // CALENDAR
@@ -320,8 +272,7 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
         style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, fontSize: 11, padding: 8, outline: 'none' }}>
         <option value={0}>at start</option><option value={5}>5 min before</option><option value={10}>10 min before</option><option value={15}>15 min before</option><option value={30}>30 min before</option>
       </select>
-      <button onClick={exportICS} title="Download .ics for Apple/Google Calendar"
-        style={{ fontFamily: F, fontSize: 11, fontWeight: 600, padding: '9px 14px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${C.amber}`, background: 'transparent', color: C.amber, whiteSpace: 'nowrap' }}>Sync to phone</button>
+      <button onClick={exportICS} style={obtn(C.amber)}>Sync to phone</button>
     </div>
   )
 
@@ -331,7 +282,7 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
     return (
       <div style={{ animation: 'fadeUp 0.3s ease' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ fontFamily: SER, fontSize: 22, fontWeight: 600 }}>{d.toLocaleDateString('en-US', { month: 'long' })}</div>
+          <div style={{ fontFamily: F, fontSize: 20, fontWeight: 800 }}>{d.toLocaleDateString('en-US', { month: 'long' })}</div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => setWeekOffset(o => o - 1)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 4, color: C.muted, width: 38, height: 38, fontSize: 17, cursor: 'pointer' }}>‹</button>
             <button onClick={() => { setWeekOffset(0); setSelDay(new Date().getDay()) }} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 4, color: C.muted, fontSize: 11, padding: '0 12px', cursor: 'pointer' }}>today</button>
@@ -344,7 +295,7 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
             return (
               <button key={i} onClick={() => setSelDay(i)} style={{ flex: 1, padding: '8px 0', borderRadius: 5, cursor: 'pointer', border: `1px solid ${sel ? C.blue : C.border}`, background: sel ? C.blueDim : 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                 <span style={{ fontFamily: F, fontSize: 9, color: sel ? C.blue : C.muted }}>{DAYS_SHORT[wd.getDay()].slice(0, 1)}</span>
-                <span style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, color: sel ? C.blue : isT ? C.amber : C.text }}>{wd.getDate()}</span>
+                <span style={{ fontFamily: F, fontSize: 15, fontWeight: 700, color: sel ? C.blue : isT ? C.amber : C.text }}>{wd.getDate()}</span>
               </button>
             )
           })}
@@ -359,7 +310,7 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
           const ec = getEvColor(ev.color)
           return (
             <div key={ev.id} onClick={() => setModal({ type: 'edit', event: ev })} style={{ display: 'flex', gap: 12, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 5, padding: '12px 14px', marginBottom: 8, cursor: 'pointer', boxShadow: 'var(--card-shadow)' }}>
-              <div style={{ width: 4, borderRadius: 3, background: ec.border, flexShrink: 0 }} />
+              <div style={{ width: 4, borderRadius: 2, background: ec.border, flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{ev.title}</div>
                 {ev.desc && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{ev.desc}</div>}
@@ -373,17 +324,15 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
     )
   }
 
-  // desktop week grid
   const HOUR_H = 46, START_H = 6
-  const now = new Date()
   return (
     <div style={{ animation: 'fadeUp 0.3s ease' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <button onClick={() => setWeekOffset(o => o - 1)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, width: 34, height: 34, cursor: 'pointer' }}>‹</button>
-          <button onClick={() => setWeekOffset(0)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, fontSize: 11, padding: '0 12px', height: 34, cursor: 'pointer' }}>TODAY</button>
+          <button onClick={() => setWeekOffset(0)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, fontSize: 11, padding: '0 12px', height: 34, cursor: 'pointer', letterSpacing: '0.08em' }}>TODAY</button>
           <button onClick={() => setWeekOffset(o => o + 1)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, width: 34, height: 34, cursor: 'pointer' }}>›</button>
-          <span style={{ fontFamily: SER, fontSize: 22, fontWeight: 600 }}>{weekDates[0].toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+          <span style={{ fontFamily: F, fontSize: 20, fontWeight: 800 }}>{weekDates[0].toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
           <LiveClock />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -399,7 +348,7 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
             return (
               <div key={i} style={{ padding: '10px 4px', textAlign: 'center', borderLeft: `1px solid ${C.border}` }}>
                 <div style={{ fontFamily: F, fontSize: 9, color: C.dim, letterSpacing: '0.08em' }}>{DAYS_SHORT[d.getDay()]}</div>
-                <div style={{ fontFamily: SER, fontSize: 18, fontWeight: 600, color: isT ? C.amber : C.text, marginTop: 2 }}>{d.getDate()}</div>
+                <div style={{ fontFamily: F, fontSize: 17, fontWeight: 700, color: isT ? C.amber : C.text, marginTop: 2 }}>{d.getDate()}</div>
               </div>
             )
           })}
@@ -413,8 +362,7 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
               <div key={di} style={{ position: 'relative', borderLeft: `1px solid ${C.border}` }}
                 onClick={e => {
                   const rect = e.currentTarget.getBoundingClientRect()
-                  const y = e.clientY - rect.top
-                  const hour = START_H + Math.floor(y / HOUR_H)
+                  const hour = START_H + Math.floor((e.clientY - rect.top) / HOUR_H)
                   setModal({ type: 'new', slot: { dow: d.getDay(), hour: Math.max(0, Math.min(23, hour)) } })
                 }}>
                 {HOURS.slice(START_H).map(h => <div key={h} style={{ height: HOUR_H, borderBottom: `1px solid ${C.border}` }} />)}
@@ -425,7 +373,7 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
                   if (top < 0) return null
                   return (
                     <div key={ev.id} onClick={e => { e.stopPropagation(); setModal({ type: 'edit', event: ev }) }}
-                      style={{ position: 'absolute', top, left: 2, right: 2, height: h, background: ec.bg, borderLeft: `3px solid ${ec.border}`, borderRadius: 5, padding: '3px 6px', cursor: 'pointer', overflow: 'hidden', zIndex: 2 }}>
+                      style={{ position: 'absolute', top, left: 2, right: 2, height: h, background: ec.bg, borderLeft: `3px solid ${ec.border}`, borderRadius: 3, padding: '3px 6px', cursor: 'pointer', overflow: 'hidden', zIndex: 2 }}>
                       <div style={{ fontFamily: F, fontSize: 10.5, fontWeight: 600, color: '#fff', lineHeight: 1.15 }}>{ev.title}</div>
                       <div style={{ fontFamily: F, fontSize: 9, color: 'rgba(255,255,255,0.8)' }}>{t12(ev.startH, ev.startM)}</div>
                     </div>
@@ -452,19 +400,15 @@ function EventModal({ event, slot, onSave, onDelete, onClose, theme }) {
   const [color, setColor] = useState(event?.color || 'blue')
   const [repeat, setRepeat] = useState(event?.repeat || 'none')
   const [allDay, setAllDay] = useState(event?.allDay || false)
-
-  const fld = { width: '100%', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 3, color: C.text, fontSize: 13, padding: '9px 11px', outline: 'none', fontFamily: F }
-  const lbl = { fontFamily: F, fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim, marginBottom: 5, display: 'block' }
-
   const submit = () => {
     if (!title.trim()) return
     onSave({ id: event?.id || uid('e'), title: title.trim(), desc: desc.trim(), dayOfWeek: dow, startH, startM, endH, endM, color, repeat, allDay })
   }
   return (
-    <div className="modal-wrap" style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(10,7,4,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: 16 }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal-card" style={{ width: 420, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 3, boxShadow: 'var(--card-shadow-sel)', padding: '20px 22px', animation: 'modalIn 0.2s ease' }}>
-        <div style={{ fontFamily: SER, fontSize: 18, fontWeight: 600, marginBottom: 16 }}>{event ? 'Edit block' : 'New block'}</div>
-        <div style={{ marginBottom: 12 }}><span style={lbl}>What</span><input autoFocus value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} placeholder="e.g. Workout" style={fld} /></div>
+    <div className="modal-wrap" style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: 16 }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal-card" style={{ width: 420, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 6, boxShadow: 'var(--card-shadow-sel)', padding: '20px 22px', animation: 'modalIn 0.2s ease' }}>
+        <div style={{ fontFamily: F, fontSize: 16, fontWeight: 800, marginBottom: 16 }}>{event ? 'Edit block' : 'New block'}</div>
+        <div style={{ marginBottom: 12 }}><span style={lbl}>What</span><input autoFocus value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} placeholder="e.g. Gym" style={fld} /></div>
         <div style={{ marginBottom: 12 }}><span style={lbl}>Note (optional)</span><input value={desc} onChange={e => setDesc(e.target.value)} style={fld} /></div>
         <div style={{ marginBottom: 12 }}><span style={lbl}>Day</span>
           <select value={dow} onChange={e => setDow(Number(e.target.value))} style={fld}>{DAYS_FULL.map((d, i) => <option key={i} value={i}>{d}</option>)}</select>
@@ -494,13 +438,13 @@ function EventModal({ event, slot, onSave, onDelete, onClose, theme }) {
           </select>
         </div>
         <div style={{ marginBottom: 18 }}><span style={lbl}>Color</span>
-          <div style={{ display: 'flex', gap: 8 }}>{EVENT_COLORS.map(c => <button key={c.id} onClick={() => setColor(c.id)} style={{ width: 28, height: 28, borderRadius: '50%', background: c.border, border: color === c.id ? `2px solid ${C.text}` : '2px solid transparent', cursor: 'pointer' }} />)}</div>
+          <div style={{ display: 'flex', gap: 8 }}>{EVENT_COLORS.map(c => <button key={c.id} onClick={() => setColor(c.id)} style={{ width: 26, height: 26, borderRadius: 3, background: c.border, border: color === c.id ? `2px solid ${C.text}` : '2px solid transparent', cursor: 'pointer' }} />)}</div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {event ? <button onClick={() => onDelete(event.id)} style={{ background: 'none', border: 'none', color: C.red, fontSize: 12, cursor: 'pointer' }}>Delete</button> : <span />}
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, fontSize: 13, padding: '8px 16px', cursor: 'pointer' }}>Cancel</button>
-            <button onClick={submit} style={{ fontFamily: F, fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 3, cursor: 'pointer', border: 'none', background: C.blue, color: theme === 'light' ? '#fff' : '#0b0b0c' }}>Save</button>
+            <button onClick={submit} style={{ fontFamily: F, fontSize: 13, fontWeight: 700, padding: '8px 18px', borderRadius: 3, cursor: 'pointer', border: 'none', background: C.blue, color: theme === 'light' ? '#fff' : '#0b0b0c' }}>Save</button>
           </div>
         </div>
       </div>
@@ -520,7 +464,6 @@ function computeStreak(data) {
     const active = dd && ((dd.done && Object.values(dd.done).some(Boolean)) || (dd.personal && dd.personal.some(p => p.done)) || (dd.notes && dd.notes.trim()))
     if (active) streak++
     else if (i > 0) break
-    else { /* today not done yet — keep counting back */ }
     d.setDate(d.getDate() - 1)
   }
   return streak
@@ -546,18 +489,15 @@ function TodayView({ data, setData, events }) {
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', animation: 'fadeUp 0.3s ease' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
-        <h1 style={{ fontFamily: SER, fontSize: 'clamp(24px,4vw,32px)', fontWeight: 600 }}>{today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h1>
-      </div>
-      <DailyQuote style={{ margin: '16px 0 20px' }} />
+      <H1>{today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</H1>
 
-      <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', marginBottom: 10 }}>The plan — what today is meant to be</div>
+      <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', margin: '22px 0 10px' }}>The plan — what today is meant to be</div>
       {scheduled.length > 0 && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 11, color: C.muted, marginBottom: 6 }}>
             <span>Today so far</span><span>{doneCount}/{scheduled.length} · {pct}%</span>
           </div>
-          <div style={{ height: 6, background: C.surface2, borderRadius: 4, overflow: 'hidden' }}><div style={{ height: '100%', width: pct + '%', background: C.green, borderRadius: 4, transition: 'width 0.3s' }} /></div>
+          <div style={{ height: 6, background: C.surface2, borderRadius: 3, overflow: 'hidden' }}><div style={{ height: '100%', width: pct + '%', background: C.green, borderRadius: 3, transition: 'width 0.3s' }} /></div>
         </div>
       )}
       {scheduled.length === 0 ? (
@@ -576,10 +516,10 @@ function TodayView({ data, setData, events }) {
         )
       })}
 
-      <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', margin: '26px 0 10px' }}>My own list — things I actually want to get done</div>
+      <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', margin: '26px 0 10px' }}>My own list</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <input value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addTask() }} placeholder="add something…" style={{ flex: 1, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 4, color: C.text, fontSize: 13, padding: '10px 12px', outline: 'none', fontFamily: F }} />
-        <button onClick={addTask} style={{ fontFamily: F, fontSize: 13, fontWeight: 600, padding: '0 16px', borderRadius: 4, cursor: 'pointer', border: `1px solid ${C.blue}`, background: C.blueDim, color: C.blue }}>Add</button>
+        <input value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addTask() }} placeholder="add something…" style={{ ...fld, flex: 1 }} />
+        <button onClick={addTask} style={obtn(C.blue)}>Add</button>
       </div>
       {(dd.personal || []).map(p => (
         <div key={p.id} style={row}>
@@ -590,13 +530,13 @@ function TodayView({ data, setData, events }) {
       ))}
 
       <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', margin: '26px 0 10px' }}>A note to myself</div>
-      <textarea value={dd.notes || ''} onChange={e => update({ notes: e.target.value })} placeholder="How did today go? Log a win, or just be honest about it. Either counts." rows={4} style={{ width: '100%', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 5, color: C.text, fontSize: 13, padding: '12px 14px', outline: 'none', fontFamily: F, resize: 'vertical', boxShadow: 'var(--card-shadow)' }} />
+      <textarea value={dd.notes || ''} onChange={e => update({ notes: e.target.value })} placeholder="How did today go? Log a win, or just be honest about it." rows={4} style={{ ...fld, background: C.surface, boxShadow: 'var(--card-shadow)', padding: '12px 14px' }} />
     </div>
   )
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-// MONEY — debt & progress tracker
+// MONEY
 // ════════════════════════════════════════════════════════════════════════════════
 function monthsToPayoff(balance, apr, monthly) {
   if (balance <= 0) return 0
@@ -642,17 +582,16 @@ function MoneyView({ finance, setFinance, isMobile }) {
 
   const stat = (label, value, color) => (
     <Panel style={{ padding: '16px 18px' }}>
-      <div style={{ fontFamily: SER, fontSize: 'clamp(22px,4vw,30px)', fontWeight: 600, color, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontFamily: F, fontSize: 10.5, color: C.muted, marginTop: 6, letterSpacing: '0.04em' }}>{label}</div>
+      <div style={{ fontFamily: F, fontSize: 'clamp(20px,3.4vw,28px)', fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontFamily: F, fontSize: 10, color: C.muted, marginTop: 6, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</div>
     </Panel>
   )
-  const obtn = c => ({ fontFamily: F, fontSize: 12, fontWeight: 600, padding: '8px 13px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${c}`, background: 'transparent', color: c, whiteSpace: 'nowrap' })
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', animation: 'fadeUp 0.3s ease', paddingBottom: 20 }}>
       <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontFamily: SER, fontSize: 'clamp(24px,4vw,32px)', fontWeight: 600 }}>Money</h1>
-        <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginTop: 6 }}>Every dollar off your debt is a dollar toward the life you&rsquo;re building. Watch it shrink.</p>
+        <H1>Money</H1>
+        <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginTop: 6 }}>Every dollar off the debt is fuel for everything else. Watch it shrink.</p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
@@ -666,12 +605,12 @@ function MoneyView({ finance, setFinance, isMobile }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 8 }}>
           <span>Overall progress to debt-free</span><span>{money(paidOff, false)} of {money(totalStart, false)}</span>
         </div>
-        <div style={{ height: 12, background: C.surface2, borderRadius: 4, overflow: 'hidden' }}><div style={{ height: '100%', width: pctPaid + '%', background: `linear-gradient(90deg,${C.green},${C.blue})`, borderRadius: 4, transition: 'width 0.4s' }} /></div>
+        <div style={{ height: 12, background: C.surface2, borderRadius: 3, overflow: 'hidden' }}><div style={{ height: '100%', width: pctPaid + '%', background: C.green, borderRadius: 3, transition: 'width 0.4s' }} /></div>
         {monthlyTotal > 0 && debtFreeMonths != null && isFinite(debtFreeMonths) && <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim, marginTop: 8 }}>At {money(monthlyTotal, false)}/mo across all debts, you&rsquo;re debt-free around {payoffDateLabel(debtFreeMonths).split('·')[1]}.</div>}
       </Panel>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '0 2px 10px' }}>
-        <span style={{ fontFamily: SER, fontSize: 17, fontWeight: 600 }}>Debts</span>
+        <span style={{ fontFamily: F, fontSize: 15, fontWeight: 800 }}>Debts</span>
         <button onClick={() => setModal({ type: 'new' })} style={obtn(C.blue)}>+ Add debt</button>
       </div>
       {active.map(d => {
@@ -684,13 +623,13 @@ function MoneyView({ finance, setFinance, isMobile }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: 3, background: d.color || C.blue }} />
-                  <span style={{ fontFamily: SER, fontSize: 17, fontWeight: 600, color: C.text }}>{d.name}</span>
+                  <span style={{ width: 10, height: 10, borderRadius: 2, background: d.color || C.blue }} />
+                  <span style={{ fontFamily: F, fontSize: 16, fontWeight: 700, color: C.text }}>{d.name}</span>
                 </div>
                 <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 3 }}>{d.apr ? d.apr + '% APR · ' : ''}{d.monthlyPayment ? money(d.monthlyPayment, false) + '/mo' : 'no monthly payment set'}{mo != null && isFinite(mo) && d.monthlyPayment ? ' · ' + payoffDateLabel(mo) : ''}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: SER, fontSize: 22, fontWeight: 600, color: C.text }}>{money(d.balance)}</div>
+                <div style={{ fontFamily: F, fontSize: 20, fontWeight: 800, color: C.text }}>{money(d.balance)}</div>
                 <div style={{ fontFamily: F, fontSize: 10.5, color: C.muted }}>{money(paid, false)} of {money(st, false)} paid</div>
               </div>
             </div>
@@ -704,15 +643,15 @@ function MoneyView({ finance, setFinance, isMobile }) {
       })}
       {cleared.length > 0 && cleared.map(d => (
         <Panel key={d.id} style={{ padding: '13px 18px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 15 }}>✓</span>
-          <span style={{ flex: 1, fontFamily: SER, fontSize: 15, fontWeight: 600, color: C.green }}>{d.name} — paid off</span>
+          <span style={{ color: C.green, fontWeight: 800 }}>✓</span>
+          <span style={{ flex: 1, fontFamily: F, fontSize: 14, fontWeight: 700, color: C.green }}>{d.name} — paid off</span>
           <button onClick={() => setModal({ type: 'edit', debt: d })} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 11, cursor: 'pointer' }}>edit</button>
         </Panel>
       ))}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14, marginTop: 20 }}>
         <Panel style={{ padding: '16px 18px' }}>
-          <div style={{ fontFamily: SER, fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Emergency fund</div>
+          <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, marginBottom: 4 }}>Emergency fund</div>
           <div style={{ fontFamily: F, fontSize: 11.5, color: C.muted, marginBottom: 12 }}>A cushion so a surprise doesn&rsquo;t become new debt.</div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 6 }}><span>{money(finance.emergencySaved, false)} saved</span><span>goal {money(finance.emergencyGoal, false)}</span></div>
           <div style={{ height: 10, background: C.surface2, borderRadius: 3, overflow: 'hidden', marginBottom: 12 }}><div style={{ height: '100%', width: efPct + '%', background: C.amber, borderRadius: 3, transition: 'width 0.4s' }} /></div>
@@ -723,26 +662,26 @@ function MoneyView({ finance, setFinance, isMobile }) {
           </div>
         </Panel>
         <Panel style={{ padding: '16px 18px' }}>
-          <div style={{ fontFamily: SER, fontSize: 16, fontWeight: 600, marginBottom: 10 }}>Milestones</div>
+          <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, marginBottom: 10 }}>Milestones</div>
           {(finance.milestones || []).map(m => (
             <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 0' }}>
-              <div onClick={() => toggleMile(m.id)} style={{ width: 18, height: 18, borderRadius: 5, border: `1.5px solid ${m.done ? C.green : C.border2}`, background: m.done ? C.green : 'transparent', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0b0b0c', fontSize: 11 }}>{m.done ? '✓' : ''}</div>
+              <div onClick={() => toggleMile(m.id)} style={{ width: 18, height: 18, borderRadius: 3, border: `1.5px solid ${m.done ? C.green : C.border2}`, background: m.done ? C.green : 'transparent', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0b0b0c', fontSize: 11 }}>{m.done ? '✓' : ''}</div>
               <span style={{ flex: 1, fontFamily: F, fontSize: 12.5, color: m.done ? C.muted : C.text, textDecoration: m.done ? 'line-through' : 'none' }}>{m.text}</span>
               <button onClick={() => delMile(m.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 13, cursor: 'pointer' }}>×</button>
             </div>
           ))}
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <input value={newMile} onChange={e => setNewMile(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addMile() }} placeholder="+ milestone" style={{ flex: 1, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 3, color: C.text, fontSize: 12, padding: '7px 9px', outline: 'none', fontFamily: F }} />
+            <input value={newMile} onChange={e => setNewMile(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addMile() }} placeholder="+ milestone" style={{ ...fld, flex: 1, fontSize: 12, padding: '7px 9px' }} />
           </div>
         </Panel>
       </div>
 
       {(finance.payments || []).length > 0 && (
         <div style={{ marginTop: 22 }}>
-          <div style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, marginBottom: 10 }}>Recent payments</div>
+          <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, marginBottom: 10 }}>Recent payments</div>
           {(finance.payments || []).slice(0, 8).map(p => {
             const d = debts.find(x => x.id === p.debtId)
-            return <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12.5, color: C.muted, padding: '7px 0', borderBottom: `1px solid ${C.border}` }}><span>{d ? d.name : 'Payment'} · {p.date}</span><span style={{ color: C.green, fontWeight: 600 }}>−{money(p.amount)}</span></div>
+            return <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12.5, color: C.muted, padding: '7px 0', borderBottom: `1px solid ${C.border}` }}><span>{d ? d.name : 'Payment'} · {p.date}</span><span style={{ color: C.green, fontWeight: 700 }}>−{money(p.amount)}</span></div>
           })}
         </div>
       )}
@@ -761,34 +700,32 @@ function DebtModal({ modal, onSave, onDelete, onPay, onClose }) {
   const [apr, setApr] = useState(d?.apr ?? '')
   const [monthly, setMonthly] = useState(d?.monthlyPayment ?? '')
   const [payAmt, setPayAmt] = useState('')
-  const fld = { width: '100%', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 3, color: C.text, fontSize: 14, padding: '10px 12px', outline: 'none', fontFamily: F, marginBottom: 12 }
-  const lbl = { fontFamily: F, fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim, marginBottom: 5, display: 'block' }
   const submit = () => {
     if (isPay) { onPay(d.id, payAmt); return }
     if (!name.trim()) return
     const bal = Number(balance) || 0
-    onSave({ id: d?.id || uid('d'), name: name.trim(), balance: bal, startBalance: Number(startBalance) || bal, apr: Number(apr) || 0, monthlyPayment: Number(monthly) || 0, color: d?.color || '#f2f2f3' })
+    onSave({ id: d?.id || uid('d'), name: name.trim(), balance: bal, startBalance: Number(startBalance) || bal, apr: Number(apr) || 0, monthlyPayment: Number(monthly) || 0, color: d?.color || '#5a78a8' })
   }
   return (
-    <div className="modal-wrap" style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(10,7,4,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: 16 }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal-card" style={{ width: 400, maxWidth: '100%', background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 3, boxShadow: 'var(--card-shadow-sel)', padding: '20px 22px', animation: 'modalIn 0.2s ease' }}>
-        <div style={{ fontFamily: SER, fontSize: 18, fontWeight: 600, marginBottom: 16 }}>{isPay ? `Log a payment · ${d.name}` : d ? 'Edit debt' : 'Add a debt'}</div>
+    <div className="modal-wrap" style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: 16 }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal-card" style={{ width: 400, maxWidth: '100%', background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 6, boxShadow: 'var(--card-shadow-sel)', padding: '20px 22px', animation: 'modalIn 0.2s ease' }}>
+        <div style={{ fontFamily: F, fontSize: 16, fontWeight: 800, marginBottom: 16 }}>{isPay ? `Log payment · ${d.name}` : d ? 'Edit debt' : 'Add a debt'}</div>
         {isPay ? (
           <>
             <span style={lbl}>Amount paid</span>
-            <input autoFocus type="number" value={payAmt} onChange={e => setPayAmt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} placeholder="0.00" style={fld} />
+            <input autoFocus type="number" value={payAmt} onChange={e => setPayAmt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} placeholder="0.00" style={{ ...fld, marginBottom: 12 }} />
             <div style={{ fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 14 }}>Current balance: {money(d.balance)}</div>
           </>
         ) : (
           <>
-            <span style={lbl}>Name</span><input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Car loan" style={fld} />
+            <span style={lbl}>Name</span><input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Car loan" style={{ ...fld, marginBottom: 12 }} />
             <div style={{ display: 'flex', gap: 10 }}>
-              <div style={{ flex: 1 }}><span style={lbl}>Balance now</span><input type="number" value={balance} onChange={e => setBalance(e.target.value)} placeholder="0" style={fld} /></div>
-              <div style={{ flex: 1 }}><span style={lbl}>Started at</span><input type="number" value={startBalance} onChange={e => setStartBalance(e.target.value)} placeholder="0" style={fld} /></div>
+              <div style={{ flex: 1 }}><span style={lbl}>Balance now</span><input type="number" value={balance} onChange={e => setBalance(e.target.value)} placeholder="0" style={{ ...fld, marginBottom: 12 }} /></div>
+              <div style={{ flex: 1 }}><span style={lbl}>Started at</span><input type="number" value={startBalance} onChange={e => setStartBalance(e.target.value)} placeholder="0" style={{ ...fld, marginBottom: 12 }} /></div>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <div style={{ flex: 1 }}><span style={lbl}>APR %</span><input type="number" value={apr} onChange={e => setApr(e.target.value)} placeholder="0" style={fld} /></div>
-              <div style={{ flex: 1 }}><span style={lbl}>Monthly payment</span><input type="number" value={monthly} onChange={e => setMonthly(e.target.value)} placeholder="0" style={fld} /></div>
+              <div style={{ flex: 1 }}><span style={lbl}>APR %</span><input type="number" value={apr} onChange={e => setApr(e.target.value)} placeholder="0" style={{ ...fld, marginBottom: 12 }} /></div>
+              <div style={{ flex: 1 }}><span style={lbl}>Monthly payment</span><input type="number" value={monthly} onChange={e => setMonthly(e.target.value)} placeholder="0" style={{ ...fld, marginBottom: 12 }} /></div>
             </div>
           </>
         )}
@@ -796,7 +733,7 @@ function DebtModal({ modal, onSave, onDelete, onPay, onClose }) {
           {d && !isPay ? <button onClick={() => onDelete(d.id)} style={{ background: 'none', border: 'none', color: C.red, fontSize: 12, cursor: 'pointer' }}>Delete</button> : <span />}
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, fontSize: 13, padding: '8px 16px', cursor: 'pointer' }}>Cancel</button>
-            <button onClick={submit} style={{ fontFamily: F, fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 3, cursor: 'pointer', border: 'none', background: isPay ? C.green : C.blue, color: '#0b0b0c' }}>{isPay ? 'Log it' : 'Save'}</button>
+            <button onClick={submit} style={{ fontFamily: F, fontSize: 13, fontWeight: 700, padding: '8px 18px', borderRadius: 3, cursor: 'pointer', border: 'none', background: isPay ? C.green : C.blue, color: '#0b0b0c' }}>{isPay ? 'Log it' : 'Save'}</button>
           </div>
         </div>
       </div>
@@ -821,25 +758,22 @@ function AvoidingView({ avoiding, setAvoiding, scheduleBlock, addToToday }) {
   const del = id => setAvoiding(avoiding.filter(a => a.id !== id))
   const daysSince = ts => Math.floor((Date.now() - (ts || Date.now())) / 86400000)
   const ageChip = dnum => { const c = dnum >= 14 ? C.red : dnum >= 4 ? C.amber : C.muted; const txt = dnum <= 0 ? 'today' : dnum === 1 ? '1 day' : dnum + ' days'; return <span style={{ fontFamily: F, fontSize: 10, color: c, whiteSpace: 'nowrap', border: `1px solid ${c}`, borderRadius: 3, padding: '2px 9px' }}>sitting {txt}</span> }
-  const lbl = { fontFamily: F, fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.dim, marginBottom: 5, display: 'block' }
-  const field = { width: '100%', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 3, color: C.text, fontSize: 13, padding: '9px 11px', outline: 'none', fontFamily: F, resize: 'vertical' }
-  const obtn = c => ({ fontFamily: F, fontSize: 11.5, fontWeight: 600, padding: '7px 12px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${c}`, background: 'transparent', color: c })
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto', animation: 'fadeUp 0.3s ease' }}>
       {flash && <div style={{ position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)', zIndex: 2000, background: C.surface3, border: `1px solid ${C.border2}`, borderRadius: 3, padding: '9px 18px', fontFamily: F, fontSize: 12, color: C.text, boxShadow: 'var(--card-shadow-sel)' }}>{flash}</div>}
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontFamily: SER, fontSize: 'clamp(24px,4vw,32px)', fontWeight: 600 }}>What am I avoiding?</h1>
-        <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>The thing you keep sliding past is usually the thing. Name it here — not to feel bad, but so it stops running you from the shadows.</p>
+        <H1>What am I avoiding?</H1>
+        <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>The thing you keep sliding past is usually the thing. Name it so it stops running you from the shadows.</p>
       </div>
       <Panel style={{ padding: '16px 18px', marginBottom: 18 }}>
         <span style={lbl}>Name something you&rsquo;re dodging</span>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add() }} placeholder="the call, the email, the gym, the hard conversation…" style={{ ...field, flex: 1, minWidth: 200 }} />
-          <button onClick={add} style={{ fontFamily: F, fontSize: 13, fontWeight: 600, padding: '9px 18px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${C.blue}`, background: C.blueDim, color: C.blue }}>Name it</button>
+          <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add() }} placeholder="the call, the email, the gym, the hard conversation…" style={{ ...fld, flex: 1, minWidth: 200 }} />
+          <button onClick={add} style={{ fontFamily: F, fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${C.blue}`, background: C.blueDim, color: C.blue }}>Name it</button>
         </div>
       </Panel>
-      <div style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, margin: '0 2px 12px' }}>On the table <span style={{ color: C.muted, fontSize: 12 }}>{activeItems.length}</span></div>
+      <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, margin: '0 2px 12px' }}>On the table <span style={{ color: C.muted, fontSize: 12, fontWeight: 500 }}>{activeItems.length}</span></div>
       {activeItems.length === 0 ? (
         <Panel style={{ padding: '30px 20px', textAlign: 'center' }}><div style={{ fontFamily: F, fontSize: 14, color: C.muted }}>Nothing named right now.</div><div style={{ fontFamily: F, fontSize: 12, color: C.dim, marginTop: 6 }}>When something starts nagging, put it up here before it grows.</div></Panel>
       ) : activeItems.map(a => {
@@ -847,10 +781,10 @@ function AvoidingView({ avoiding, setAvoiding, scheduleBlock, addToToday }) {
         return (
           <Panel key={a.id} style={{ padding: '16px 18px', marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
-              <div style={{ fontFamily: SER, fontSize: 17, fontWeight: 600, color: C.text, lineHeight: 1.25 }}>{a.text}</div>{ageChip(dnum)}
+              <div style={{ fontFamily: F, fontSize: 16, fontWeight: 700, color: C.text, lineHeight: 1.25 }}>{a.text}</div>{ageChip(dnum)}
             </div>
-            <div style={{ marginBottom: 12 }}><span style={lbl}>Why am I really dodging it?</span><textarea value={a.why} onChange={e => patch(a.id, { why: e.target.value })} rows={2} placeholder="fear, boredom, don't know how to start…" style={field} /></div>
-            <div style={{ marginBottom: 14 }}><span style={lbl}>The smallest possible first step</span><input value={a.step} onChange={e => patch(a.id, { step: e.target.value })} placeholder="open the doc. send one line. 5 minutes." style={field} /></div>
+            <div style={{ marginBottom: 12 }}><span style={lbl}>Why am I really dodging it?</span><textarea value={a.why} onChange={e => patch(a.id, { why: e.target.value })} rows={2} placeholder="fear, boredom, don't know how to start…" style={fld} /></div>
+            <div style={{ marginBottom: 14 }}><span style={lbl}>The smallest possible first step</span><input value={a.step} onChange={e => patch(a.id, { step: e.target.value })} placeholder="open the doc. send one line. 5 minutes." style={fld} /></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <button onClick={() => del(a.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 11, cursor: 'pointer' }}>remove</button>
               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
@@ -865,7 +799,7 @@ function AvoidingView({ avoiding, setAvoiding, scheduleBlock, addToToday }) {
       {faced.length > 0 && (
         <div style={{ marginTop: 22 }}>
           <button onClick={() => setShowFaced(s => !s)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, color: C.green }}>Faced</span><span style={{ fontFamily: F, fontSize: 12, color: C.muted }}>{faced.length}</span><span style={{ color: C.dim, fontSize: 11 }}>{showFaced ? '▲' : '▼'}</span>
+            <span style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: C.green }}>Faced</span><span style={{ fontFamily: F, fontSize: 12, color: C.muted }}>{faced.length}</span><span style={{ color: C.dim, fontSize: 11 }}>{showFaced ? '▲' : '▼'}</span>
           </button>
           <div style={{ fontFamily: F, fontSize: 11, color: C.dim, margin: '2px 2px 10px' }}>Every one of these is a thing you stopped running from.</div>
           {showFaced && faced.map(a => (
@@ -883,7 +817,7 @@ function AvoidingView({ avoiding, setAvoiding, scheduleBlock, addToToday }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-// LOOKING BACK (heatmap)
+// LOOKING BACK heatmap (embedded in Journal)
 // ════════════════════════════════════════════════════════════════════════════════
 function IntelView({ data, embed }) {
   const weeks = 12
@@ -904,32 +838,27 @@ function IntelView({ data, embed }) {
     }
     cells.push({ key, level, future: d > today })
   }
-  const colors = [C.surface2, 'rgba(147,167,119,0.35)', 'rgba(147,167,119,0.6)', 'rgba(147,167,119,0.85)', C.green]
+  const colors = [C.surface2, 'rgba(125,155,114,0.35)', 'rgba(125,155,114,0.6)', 'rgba(125,155,114,0.85)', C.green]
   const cols = []
   for (let w = 0; w < weeks; w++) cols.push(cells.slice(w * 7, w * 7 + 7))
   const trackedDays = cells.filter(c => c.level > 0).length
   const cleanDays = cells.filter(c => c.level >= 3).length
-
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', animation: 'fadeUp 0.3s ease' }}>
-      {embed ? <div style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Looking back</div>
-        : <h1 style={{ fontFamily: SER, fontSize: 'clamp(24px,4vw,32px)', fontWeight: 600, marginBottom: 6 }}>Looking Back</h1>}
-      <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginBottom: 20 }}>The last 12 weeks — did I show up?</p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
+    <div style={{ animation: 'fadeUp 0.3s ease' }}>
+      <div style={{ fontFamily: F, fontSize: embed ? 14 : 20, fontWeight: 800, marginBottom: 4 }}>Looking back</div>
+      <p style={{ fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 14 }}>The last 12 weeks — did I show up?</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
         {[['Days shown up', trackedDays, C.blue], ['Strong days', cleanDays, C.green], ['Follow-through', trackedDays ? Math.round(cleanDays / trackedDays * 100) + '%' : '—', C.amber]].map(([l, v, c]) => (
-          <Panel key={l} style={{ padding: '16px' }}><div style={{ fontFamily: SER, fontSize: 30, fontWeight: 600, color: c, lineHeight: 1 }}>{v}</div><div style={{ fontFamily: F, fontSize: 10.5, color: C.muted, marginTop: 6 }}>{l}</div></Panel>
+          <Panel key={l} style={{ padding: '14px' }}><div style={{ fontFamily: F, fontSize: 24, fontWeight: 800, color: c, lineHeight: 1 }}>{v}</div><div style={{ fontFamily: F, fontSize: 10, color: C.muted, marginTop: 6 }}>{l}</div></Panel>
         ))}
       </div>
-      <Panel style={{ padding: 18, overflowX: 'auto' }}>
+      <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div style={{ display: 'flex', gap: 4 }}>
           {cols.map((col, ci) => (
             <div key={ci} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {col.map(c => <div key={c.key} title={c.key} style={{ width: 15, height: 15, borderRadius: 3, background: c.future ? 'transparent' : colors[c.level], border: c.future ? `1px dashed ${C.border}` : 'none' }} />)}
+              {col.map(c => <div key={c.key} title={c.key} style={{ width: 14, height: 14, borderRadius: 2, background: c.future ? 'transparent' : colors[c.level], border: c.future ? `1px dashed ${C.border}` : 'none' }} />)}
             </div>
           ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 14, fontFamily: F, fontSize: 10, color: C.dim }}>
-          less {colors.map((c, i) => <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: c }} />)} more
         </div>
       </Panel>
     </div>
@@ -937,7 +866,7 @@ function IntelView({ data, embed }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-// VISION pieces (Board & Wins — rendered inside Goals)
+// VISION pieces (Board & Wins — inside Goals)
 // ════════════════════════════════════════════════════════════════════════════════
 function BoardTab({ vision, setV }) {
   const [editing, setEditing] = useState(null)
@@ -950,7 +879,6 @@ function BoardTab({ vision, setV }) {
   const del = id => { setItems(items.filter(i => i.id !== id)); setEditing(null) }
   const upload = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => setItems([...items, { id: uid('img'), kind: 'image', src: r.result, x: 40, y: 40, w: 220, h: 160, z: items.length }]); r.readAsDataURL(f); e.target.value = '' }
   const fileRef = useRef()
-
   const dragStart = (e, it) => {
     const board = e.currentTarget.closest('[data-board]').getBoundingClientRect()
     const offX = e.clientX - board.left - it.x, offY = e.clientY - board.top - it.y
@@ -958,18 +886,17 @@ function BoardTab({ vision, setV }) {
     const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
     window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
   }
-
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <button onClick={addImage} style={btnStyle(C.blue)}>+ Image URL</button>
-        <button onClick={() => fileRef.current.click()} style={btnStyle(C.muted)}>+ Upload image</button>
-        <button onClick={addGoal} style={btnStyle(C.green)}>+ Goal</button>
-        <button onClick={addNote} style={btnStyle(C.muted)}>+ Note</button>
+        <button onClick={addImage} style={obtn(C.blue)}>+ Image URL</button>
+        <button onClick={() => fileRef.current.click()} style={obtn(C.muted)}>+ Upload image</button>
+        <button onClick={addGoal} style={obtn(C.green)}>+ Goal</button>
+        <button onClick={addNote} style={obtn(C.muted)}>+ Note</button>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={upload} />
       </div>
-      <div data-board style={{ position: 'relative', width: '100%', minHeight: 460, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 3, overflow: 'hidden', boxShadow: 'var(--card-shadow)', backgroundImage: `radial-gradient(var(--surface2) 1px, transparent 1px)`, backgroundSize: '22px 22px' }}>
-        {items.length === 0 && <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, pointerEvents: 'none' }}><div style={{ fontFamily: SER, fontSize: 17, color: C.muted }}>Your board is empty.</div><div style={{ fontFamily: F, fontSize: 12, color: C.dim }}>Add images of the life you want, plus goals to chase. Drag them anywhere.</div></div>}
+      <div data-board style={{ position: 'relative', width: '100%', minHeight: 460, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, overflow: 'hidden', boxShadow: 'var(--card-shadow)', backgroundImage: `radial-gradient(var(--surface2) 1px, transparent 1px)`, backgroundSize: '22px 22px' }}>
+        {items.length === 0 && <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, pointerEvents: 'none' }}><div style={{ fontFamily: F, fontSize: 15, fontWeight: 700, color: C.muted }}>Your board is empty.</div><div style={{ fontFamily: F, fontSize: 12, color: C.dim }}>Add images of the life you want. Drag them anywhere.</div></div>}
         {items.slice().sort((a, b) => (a.z || 0) - (b.z || 0)).map(it => (
           <div key={it.id} onMouseDown={e => { if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') dragStart(e, it) }}
             onClick={() => setEditing(it.id)}
@@ -977,22 +904,21 @@ function BoardTab({ vision, setV }) {
             {it.kind === 'image' && <img src={it.src} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4, display: 'block' }} />}
             {it.kind === 'goal' && (
               <div style={{ background: C.surface2, borderRadius: 4, padding: '12px 14px', height: '100%', borderLeft: `3px solid ${C.green}` }}>
-                <input value={it.text} onChange={e => patch(it.id, { text: e.target.value })} style={{ width: '100%', background: 'transparent', border: 'none', color: C.text, fontFamily: SER, fontSize: 15, fontWeight: 600, outline: 'none', marginBottom: 8 }} />
-                <div style={{ height: 7, background: C.surface3, borderRadius: 4, overflow: 'hidden', marginBottom: 6 }}><div style={{ height: '100%', width: (it.progress || 0) + '%', background: C.green, borderRadius: 4 }} /></div>
+                <input value={it.text} onChange={e => patch(it.id, { text: e.target.value })} style={{ width: '100%', background: 'transparent', border: 'none', color: C.text, fontFamily: F, fontSize: 14, fontWeight: 700, outline: 'none', marginBottom: 8 }} />
+                <div style={{ height: 7, background: C.surface3, borderRadius: 3, overflow: 'hidden', marginBottom: 6 }}><div style={{ height: '100%', width: (it.progress || 0) + '%', background: C.green, borderRadius: 3 }} /></div>
                 <input type="range" min={0} max={100} value={it.progress || 0} onChange={e => patch(it.id, { progress: Number(e.target.value) })} style={{ width: '100%' }} />
                 <div style={{ fontFamily: F, fontSize: 10, color: C.muted, textAlign: 'right' }}>{it.progress || 0}%</div>
               </div>
             )}
-            {it.kind === 'text' && <textarea value={it.text} onChange={e => patch(it.id, { text: e.target.value })} style={{ width: '100%', height: '100%', background: C.surface2, border: 'none', borderRadius: 4, color: C.text, fontFamily: SER, fontSize: 14, padding: '12px 14px', outline: 'none', resize: 'none', borderLeft: `3px solid ${C.amber}` }} />}
+            {it.kind === 'text' && <textarea value={it.text} onChange={e => patch(it.id, { text: e.target.value })} style={{ width: '100%', height: '100%', background: C.surface2, border: 'none', borderRadius: 4, color: C.text, fontFamily: F, fontSize: 13, padding: '12px 14px', outline: 'none', resize: 'none', borderLeft: `3px solid ${C.amber}` }} />}
             {editing === it.id && <button onClick={e => { e.stopPropagation(); del(it.id) }} style={{ position: 'absolute', top: -10, right: -10, width: 22, height: 22, borderRadius: '50%', background: C.red, color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}>×</button>}
           </div>
         ))}
       </div>
-      <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 10 }}>Tip: click an item to select it (then the × removes it). Drag to move. Slide a goal to update its progress.</div>
+      <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 10 }}>Click to select (× removes). Drag to move. Slide a goal to update progress.</div>
     </div>
   )
 }
-const btnStyle = c => ({ fontFamily: F, fontSize: 12, fontWeight: 600, padding: '8px 14px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${c}`, background: 'transparent', color: c })
 
 function WinsTab({ vision, setV }) {
   const [text, setText] = useState('')
@@ -1001,14 +927,14 @@ function WinsTab({ vision, setV }) {
   const del = id => setV({ wins: wins.filter(w => w.id !== id) })
   return (
     <div style={{ maxWidth: 620 }}>
-      <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginBottom: 16 }}>Proof you&rsquo;re moving. Log every win — big or small. Read them on the hard days.</p>
+      <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginBottom: 16 }}>Proof you&rsquo;re moving. Log every win. Read them on the hard days.</p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add() }} placeholder="something you did / got / became…" style={{ flex: 1, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 4, color: C.text, fontSize: 13, padding: '10px 12px', outline: 'none', fontFamily: F }} />
-        <button onClick={add} style={{ fontFamily: F, fontSize: 13, fontWeight: 600, padding: '0 16px', borderRadius: 4, cursor: 'pointer', border: `1px solid ${C.amber}`, background: 'transparent', color: C.amber }}>Log win</button>
+        <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add() }} placeholder="something you did / got / became…" style={{ ...fld, flex: 1 }} />
+        <button onClick={add} style={obtn(C.amber)}>Log win</button>
       </div>
       {wins.length === 0 ? <div style={{ fontFamily: F, fontSize: 12, color: C.dim }}>No wins logged yet. Start today.</div> : wins.map(w => (
         <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: '12px 14px', marginBottom: 8, boxShadow: 'var(--card-shadow)' }}>
-          <span style={{ color: C.amber, fontSize: 15 }}>★</span>
+          <span style={{ color: C.amber, fontSize: 14 }}>★</span>
           <span style={{ flex: 1, fontFamily: F, fontSize: 14, color: C.text }}>{w.text}</span>
           <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>{w.date}</span>
           <button onClick={() => del(w.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 14, cursor: 'pointer' }}>×</button>
@@ -1025,7 +951,7 @@ function MotivationMode({ images, onClose }) {
   if (!images.length) return null
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <img src={images[idx].src} alt="" style={{ maxWidth: '92%', maxHeight: '86%', objectFit: 'contain', borderRadius: 5, boxShadow: '0 0 80px rgba(220,161,95,0.3)' }} />
+      <img src={images[idx].src} alt="" style={{ maxWidth: '92%', maxHeight: '86%', objectFit: 'contain', borderRadius: 5 }} />
       <div style={{ position: 'absolute', bottom: 30, display: 'flex', gap: 7 }}>{images.map((_, i) => <div key={i} style={{ width: 8, height: 8, borderRadius: '50%', background: i === idx ? '#f2f2f3' : '#2a2a2e' }} />)}</div>
       <button onClick={onClose} style={{ position: 'absolute', top: 24, right: 28, background: 'none', border: 'none', color: '#f2f2f3', fontSize: 28, cursor: 'pointer' }}>×</button>
     </div>
@@ -1044,8 +970,6 @@ function JournalView({ vision, setVision, data }) {
   const wc = wordCount(text)
   const required = 150
   const done = wc >= required
-  const [q, a] = dailyQuote()
-
   const save = () => {
     const entry = { date: todayKey(), text, ts: Date.now() }
     const next = journal.some(e => e.date === todayKey()) ? journal.map(e => e.date === todayKey() ? entry : e) : [entry, ...journal]
@@ -1053,16 +977,14 @@ function JournalView({ vision, setVision, data }) {
   }
   useEffect(() => { const i = setTimeout(save, 500); return () => clearTimeout(i) }, [text])
   const past = journal.filter(e => e.date !== todayKey()).sort((a, b) => (b.ts || 0) - (a.ts || 0))
-
   return (
     <div style={{ maxWidth: 680, margin: '0 auto', animation: 'fadeUp 0.3s ease' }}>
-      <h1 style={{ fontFamily: SER, fontSize: 'clamp(24px,4vw,32px)', fontWeight: 600, marginBottom: 6 }}>Journal</h1>
-      <p style={{ fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 18, letterSpacing: '0.02em', textTransform: 'uppercase' }}>End the day honest. Even when it was a bad one.</p>
-      <DailyQuote style={{ marginBottom: 18 }} />
+      <H1>Journal</H1>
+      <p style={{ fontFamily: F, fontSize: 11, color: C.muted, margin: '6px 0 18px', letterSpacing: '0.06em', textTransform: 'uppercase' }}>End the day honest. Even when it was a bad one.</p>
       <Panel style={{ padding: '18px 20px', marginBottom: 20 }}>
-        <div style={{ fontFamily: SER, fontSize: 17, fontWeight: 600, marginBottom: 4 }}>Tonight&rsquo;s reflection</div>
+        <div style={{ fontFamily: F, fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Tonight&rsquo;s reflection</div>
         <div style={{ fontFamily: F, fontSize: 11.5, color: C.muted, marginBottom: 12 }}>{nightMode ? 'Write at least 150 words about today — the good, the bad, the honest.' : 'Come back after 9pm to close out the day. But you can start now.'}</div>
-        <textarea value={text} onChange={e => setText(e.target.value)} rows={9} placeholder="What actually happened today? What did you avoid, face, feel, learn?" style={{ width: '100%', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 5, color: C.text, fontSize: 14, padding: '14px', outline: 'none', fontFamily: F, resize: 'vertical', lineHeight: 1.6 }} />
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={9} placeholder="What actually happened today? What did you avoid, face, feel, learn?" style={{ ...fld, fontSize: 14, padding: 14, lineHeight: 1.6 }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <div style={{ height: 5, flex: 1, background: C.surface2, borderRadius: 3, overflow: 'hidden', marginRight: 12 }}><div style={{ height: '100%', width: Math.min(100, wc / required * 100) + '%', background: done ? C.green : C.amber, borderRadius: 3 }} /></div>
           <span style={{ fontFamily: F, fontSize: 11, color: done ? C.green : C.muted }}>{wc}/{required} words {done ? '✓' : ''}</span>
@@ -1070,7 +992,7 @@ function JournalView({ vision, setVision, data }) {
       </Panel>
       {past.length > 0 && (
         <>
-          <div style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, marginBottom: 10 }}>Past entries</div>
+          <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, marginBottom: 10 }}>Past entries</div>
           {past.map(e => (
             <Panel key={e.date} style={{ padding: '14px 16px', marginBottom: 10 }}>
               <div style={{ fontFamily: F, fontSize: 10.5, color: C.dim, marginBottom: 6 }}>{new Date(e.ts || e.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
@@ -1085,8 +1007,489 @@ function JournalView({ vision, setVision, data }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// ME — Body (holo) · Gym · Fuel · Career · Skills · Week
+// ════════════════════════════════════════════════════════════════════════════════
+const ME_TABS = [['body', 'Body'], ['gym', 'Gym'], ['fuel', 'Fuel'], ['career', 'Career'], ['skills', 'Skills'], ['week', 'My Week']]
+
+function MeView({ me, setMe, applyWeek, isMobile }) {
+  const [tab, setTab] = useState('body')
+  const [flash, setFlash] = useState(null)
+  const ping = m => { setFlash(m); setTimeout(() => setFlash(null), 1800) }
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto', animation: 'fadeUp 0.3s ease', paddingBottom: 20 }}>
+      {flash && <div style={{ position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)', zIndex: 2000, background: C.surface3, border: `1px solid ${C.border2}`, borderRadius: 3, padding: '9px 18px', fontFamily: F, fontSize: 12, color: C.text, boxShadow: 'var(--card-shadow-sel)' }}>{flash}</div>}
+      <H1>Me</H1>
+      <div style={{ display: 'flex', gap: 4, overflowX: 'auto', padding: '14px 0 0', marginBottom: 20, borderBottom: `1px solid ${C.border}` }}>
+        {ME_TABS.map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={{ position: 'relative', fontFamily: F, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '10px 13px', cursor: 'pointer', border: 'none', background: 'transparent', color: tab === id ? C.blue : C.muted, borderBottom: tab === id ? `2px solid ${C.blue}` : '2px solid transparent', whiteSpace: 'nowrap' }}>{label}</button>
+        ))}
+      </div>
+      {tab === 'body' && <BodyTab me={me} setMe={setMe} isMobile={isMobile} />}
+      {tab === 'gym' && <GymTab me={me} setMe={setMe} />}
+      {tab === 'fuel' && <FuelTab me={me} />}
+      {tab === 'career' && <CareerTab me={me} setMe={setMe} />}
+      {tab === 'skills' && <SkillsTab me={me} setMe={setMe} />}
+      {tab === 'week' && <WeekTab me={me} applyWeek={applyWeek} ping={ping} />}
+    </div>
+  )
+}
+
+// ── holographic figure: morphs with weight ──
+function HoloFigure({ current, start, goal }) {
+  const span = Math.max(1, start - goal)
+  const t = Math.max(0, Math.min(1.15, (current - goal) / span)) // 1 = start build, 0 = goal build
+  const cx = 80
+  const sw = 25 + 8 * t     // half shoulder width
+  const ww = 13.5 + 13 * t  // half waist
+  const hw = 16.5 + 9 * t   // half hip
+  const th = 8.5 + 4.5 * t  // thigh half-width
+  const cf = 5.5 + 2 * t    // calf half-width
+  const ar = 5.5 + 2.5 * t  // arm half-width
+
+  const torso = (sw2, ww2, hw2) =>
+    `M ${cx - sw2} 56 C ${cx - sw2 - 2} 70, ${cx - ww2 - 2} 84, ${cx - ww2} 96 C ${cx - ww2 + 1} 104, ${cx - hw2} 110, ${cx - hw2} 118 L ${cx + hw2} 118 C ${cx + hw2} 110, ${cx + ww2 - 1} 104, ${cx + ww2} 96 C ${cx + ww2 + 2} 84, ${cx + sw2 + 2} 70, ${cx + sw2} 56 Z`
+  const leg = (s, hw2, th2, cf2) =>
+    `M ${cx + s * 3} 118 L ${cx + s * hw2} 118 C ${cx + s * (th2 + 5)} 152, ${cx + s * (cf2 + 4)} 186, ${cx + s * (cf2 + 3)} 214 L ${cx + s * 3.5} 214 C ${cx + s * 5} 186, ${cx + s * 4} 152, ${cx + s * 3} 118 Z`
+  const arm = s => {
+    const x0 = cx + s * (sw + 2)
+    return `M ${x0} 58 C ${x0 + s * ar * 2} 62, ${x0 + s * ar * 2} 62, ${x0 + s * ar * 2} 74 L ${x0 + s * ar * 1.6} 116 C ${x0 + s * ar * 1.2} 122, ${x0 + s * ar * 0.2} 122, ${x0 + s * ar * 0.1} 116 L ${x0} 74 Z`
+  }
+  const figure = (sw2, ww2, hw2, th2, cf2, key, style) => (
+    <g key={key} {...style}>
+      <circle cx={cx} cy={30} r={14.5} />
+      <rect x={cx - 5.5} y={44} width={11} height={12} rx={3} />
+      <path d={torso(sw2, ww2, hw2)} />
+      <path d={arm(-1)} />
+      <path d={arm(1)} />
+      <path d={leg(-1, hw2, th2, cf2)} />
+      <path d={leg(1, hw2, th2, cf2)} />
+    </g>
+  )
+  const gsw = 25, gww = 13.5, ghw = 16.5, gth = 8.5, gcf = 5.5
+  return (
+    <svg viewBox="0 0 160 236" width="100%" style={{ maxWidth: 230, display: 'block', margin: '0 auto', animation: 'holoPulse 4s ease-in-out infinite' }}>
+      <defs>
+        <pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse">
+          <rect width="4" height="1.4" fill="var(--holo)" opacity="0.35" />
+        </pattern>
+        <mask id="figmask">
+          <g fill="#fff">{figure(sw, ww, hw, th, cf, 'm')}</g>
+        </mask>
+      </defs>
+      {/* grid floor */}
+      <ellipse cx={cx} cy={224} rx={54} ry={8} fill="none" stroke="var(--holo)" strokeWidth="1" opacity="0.35" />
+      <ellipse cx={cx} cy={224} rx={34} ry={5} fill="none" stroke="var(--holo)" strokeWidth="0.8" opacity="0.22" />
+      {/* goal ghost */}
+      <g fill="none" stroke="var(--holo)" strokeWidth="1.2" strokeDasharray="4 4" opacity="0.4">{figure(gsw, gww, ghw, gth, gcf, 'g')}</g>
+      {/* current body */}
+      <g fill="var(--holoDim)" stroke="var(--holo)" strokeWidth="1.8">{figure(sw, ww, hw, th, cf, 'c')}</g>
+      {/* scanlines inside body */}
+      <rect x="0" y="0" width="160" height="236" fill="url(#scan)" mask="url(#figmask)" style={{ animation: 'scanMove 1.6s linear infinite' }} />
+    </svg>
+  )
+}
+
+function BodyTab({ me, setMe, isMobile }) {
+  const [w, setW] = useState('')
+  const weighIns = (me.weighIns || []).slice().sort((a, b) => a.date.localeCompare(b.date))
+  const current = weighIns.length ? weighIns[weighIns.length - 1].lbs : me.startWeight
+  const lost = Math.max(0, me.startWeight - current)
+  const toGo = Math.max(0, current - me.goalWeight)
+  const totalSpan = me.startWeight - me.goalWeight
+  const pct = totalSpan > 0 ? Math.min(100, Math.round(lost / totalSpan * 100)) : 0
+  const log = () => { const v = Number(w); if (!v || v < 60 || v > 500) return; setMe(m => ({ ...m, weighIns: [...(m.weighIns || []).filter(x => x.date !== todayKey()), { id: uid('w'), date: todayKey(), lbs: v }] })); setW('') }
+  const delWeigh = id => setMe(m => ({ ...m, weighIns: (m.weighIns || []).filter(x => x.id !== id) }))
+  const editNums = () => { const s = ask('Start weight (lbs)?'); const g = ask('Goal weight (lbs)?'); setMe(m => ({ ...m, startWeight: Number(s) || m.startWeight, goalWeight: Number(g) || m.goalWeight })) }
+
+  const spark = (() => {
+    if (weighIns.length < 2) return null
+    const W = 560, H = 110, pad = 10
+    const lo = Math.min(...weighIns.map(x => x.lbs), me.goalWeight) - 2
+    const hi = Math.max(...weighIns.map(x => x.lbs), me.startWeight) + 2
+    const pts = weighIns.map((x, i) => {
+      const px = pad + (i / (weighIns.length - 1)) * (W - pad * 2)
+      const py = pad + (1 - (x.lbs - lo) / (hi - lo)) * (H - pad * 2)
+      return [px, py]
+    })
+    const goalY = pad + (1 - (me.goalWeight - lo) / (hi - lo)) * (H - pad * 2)
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+        <line x1={pad} y1={goalY} x2={W - pad} y2={goalY} stroke="var(--green)" strokeDasharray="5 5" strokeWidth="1.5" opacity="0.7" />
+        <text x={W - pad} y={goalY - 5} textAnchor="end" fontSize="10" fill="var(--green)" fontFamily="Inter">goal {me.goalWeight}</text>
+        <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke="var(--holo)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r="3.5" fill="var(--holo)" />)}
+      </svg>
+    )
+  })()
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '250px 1fr', gap: 18, alignItems: 'start' }}>
+      {/* holographic figure */}
+      <Panel style={{ padding: '20px 14px 12px', textAlign: 'center' }}>
+        <HoloFigure current={current} start={me.startWeight} goal={me.goalWeight} />
+        <div style={{ fontFamily: F, fontSize: 26, fontWeight: 800, color: C.holo, marginTop: 6 }}>{current}<span style={{ fontSize: 13, color: C.muted, fontWeight: 500 }}> lb</span></div>
+        <div style={{ fontFamily: F, fontSize: 10, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>solid = now · dashed = goal</div>
+      </Panel>
+
+      <div>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 10, marginBottom: 14 }}>
+          {[[`5'${me.heightIn % 12}"`, 'Height'], [me.startWeight + ' lb', 'Started'], [me.goalWeight + ' lb', 'Goal'], [lost.toFixed(1) + ' lb', 'Lost']].map(([v, l]) => (
+            <Panel key={l} style={{ padding: '13px 14px' }}>
+              <div style={{ fontFamily: F, fontSize: 19, fontWeight: 800, color: l === 'Lost' && lost > 0 ? C.green : C.text, lineHeight: 1 }}>{v}</div>
+              <div style={{ fontFamily: F, fontSize: 9.5, color: C.muted, marginTop: 5, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{l}</div>
+            </Panel>
+          ))}
+        </div>
+        <Panel style={{ padding: '15px 17px', marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 8 }}>
+            <span>{me.startWeight} → {me.goalWeight} lbs</span>
+            <span>{pct}% there · {toGo.toFixed(1)} to go <span onClick={editNums} style={{ cursor: 'pointer', color: C.dim }}>✎</span></span>
+          </div>
+          <div style={{ height: 10, background: C.surface2, borderRadius: 3, overflow: 'hidden' }}><div style={{ height: '100%', width: pct + '%', background: C.holo, borderRadius: 3, transition: 'width 0.4s' }} /></div>
+        </Panel>
+        <Panel style={{ padding: '15px 17px', marginBottom: 14 }}>
+          <span style={lbl}>Log today&rsquo;s weigh-in — same time each day, mornings are best</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input type="number" value={w} onChange={e => setW(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') log() }} placeholder={String(current)} style={{ ...fld, flex: 1 }} />
+            <button onClick={log} style={obtn(C.holo)}>Log it</button>
+          </div>
+        </Panel>
+        {spark && <Panel style={{ padding: '15px 17px', marginBottom: 14 }}>{spark}</Panel>}
+        {weighIns.length > 0 && (
+          <div>
+            <div style={{ fontFamily: F, fontSize: 13, fontWeight: 800, marginBottom: 8 }}>History</div>
+            {weighIns.slice().reverse().slice(0, 8).map(x => (
+              <div key={x.id} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12.5, color: C.muted, padding: '7px 2px', borderBottom: `1px solid ${C.border}` }}>
+                <span>{x.date}</span><span style={{ color: C.text, fontWeight: 700 }}>{x.lbs} lb <span onClick={() => delWeigh(x.id)} style={{ color: C.dim, cursor: 'pointer', marginLeft: 8 }}>×</span></span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function GymTab({ me, setMe }) {
+  const routine = me.routine || []
+  const patch = (id, p) => setMe(m => ({ ...m, routine: m.routine.map(r => r.id === id ? { ...r, ...p } : r) }))
+  const add = () => setMe(m => ({ ...m, routine: [...m.routine, { id: uid('r'), day: 3, name: 'New day', items: '' }] }))
+  const del = id => setMe(m => ({ ...m, routine: m.routine.filter(r => r.id !== id) }))
+  const todayDow = new Date().getDay()
+  return (
+    <div>
+      <p style={{ fontFamily: F, fontSize: 12.5, color: C.muted, marginBottom: 14 }}>Your split — edit anything. Today&rsquo;s session is marked. The 6am pushups/situps run daily on top of this.</p>
+      {routine.slice().sort((a, b) => a.day - b.day).map(r => {
+        const isToday = r.day === todayDow
+        return (
+          <Panel key={r.id} style={{ padding: '15px 17px', marginBottom: 12, border: isToday ? `1px solid ${C.blue}` : `1px solid ${C.border}` }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+              <select value={r.day} onChange={e => patch(r.id, { day: Number(e.target.value) })} style={{ ...fld, width: 130 }}>
+                {DAYS_FULL.map((d, i) => <option key={i} value={i}>{d}</option>)}
+              </select>
+              <input value={r.name} onChange={e => patch(r.id, { name: e.target.value })} style={{ ...fld, flex: 1, minWidth: 140, fontSize: 14, fontWeight: 700 }} />
+              {isToday && <span style={{ fontFamily: F, fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 3, padding: '3px 10px' }}>TODAY</span>}
+              <button onClick={() => del(r.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 14, cursor: 'pointer' }}>×</button>
+            </div>
+            <textarea value={r.items} onChange={e => patch(r.id, { items: e.target.value })} rows={Math.max(3, (r.items || '').split('\n').length)} placeholder={'One exercise per line…'} style={{ ...fld, lineHeight: 1.7 }} />
+          </Panel>
+        )
+      })}
+      <button onClick={add} style={obtn(C.blue)}>+ Add a day</button>
+    </div>
+  )
+}
+
+function FuelTab({ me }) {
+  const kcal = 1950, protein = 155
+  const foods = [
+    ['Eggs', '~$4/dozen · 6g protein each'],
+    ['Chicken (thighs/breast)', 'the backbone — buy family packs'],
+    ['Ground turkey 93%', 'quick bowls, tacos, pasta'],
+    ['Canned tuna', 'cheapest protein per dollar there is'],
+    ['Greek yogurt (plain, big tub)', '~17g protein per serving'],
+    ['Cottage cheese', 'night-time protein'],
+    ['Rice + beans', 'cheap volume, real food'],
+    ['Frozen vegetables', 'no waste, always ready'],
+    ['Oats', 'breakfast base for pennies'],
+    ['Whey protein', 'only if the budget allows — food first'],
+  ]
+  return (
+    <div style={{ maxWidth: 680 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+        {[[kcal.toLocaleString(), 'Calories / day'], [protein + 'g', 'Protein / day'], ['$350', 'Food budget / mo']].map(([v, l]) => (
+          <Panel key={l} style={{ padding: '15px 16px' }}>
+            <div style={{ fontFamily: F, fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1 }}>{v}</div>
+            <div style={{ fontFamily: F, fontSize: 9.5, color: C.muted, marginTop: 6, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{l}</div>
+          </Panel>
+        ))}
+      </div>
+      <Panel style={{ padding: '16px 18px', marginBottom: 16 }}>
+        <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, marginBottom: 8 }}>The cut, kept simple</div>
+        <div style={{ fontFamily: F, fontSize: 13, color: C.muted, lineHeight: 1.7 }}>
+          At 5&rsquo;5&rdquo; and {me.startWeight} lbs, roughly <b style={{ color: C.text }}>{kcal.toLocaleString()} calories</b> and <b style={{ color: C.text }}>{protein}g protein</b> a day loses about 1–1.5 lb a week without starving. Protein first at every meal — it keeps muscle on while the fat comes off, especially with your lifting.
+          <br /><br />Cook most meals ($250 groceries), keep restaurants inside $100, drink mostly water, don&rsquo;t drink calories. One rule beats ten: <b style={{ color: C.text }}>if you didn&rsquo;t plan it, don&rsquo;t eat it.</b>
+        </div>
+      </Panel>
+      <div style={{ fontFamily: F, fontSize: 13, fontWeight: 800, marginBottom: 10 }}>Cheap protein that fits the budget</div>
+      {foods.map(([n, d]) => (
+        <div key={n} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontFamily: F, fontSize: 12.5, padding: '8px 2px', borderBottom: `1px solid ${C.border}` }}>
+          <span style={{ color: C.text, fontWeight: 600 }}>{n}</span><span style={{ color: C.muted, textAlign: 'right' }}>{d}</span>
+        </div>
+      ))}
+      <div style={{ fontFamily: F, fontSize: 10.5, color: C.dim, marginTop: 12 }}>Sensible guidance, not medical advice — adjust to how your body responds.</div>
+    </div>
+  )
+}
+
+function CareerTab({ me, setMe }) {
+  const c = me.career
+  const [skill, setSkill] = useState('')
+  const setC = p => setMe(m => ({ ...m, career: { ...m.career, ...p } }))
+  const addSkill = () => { const s = skill.trim(); if (!s) return; setC({ skills: [...c.skills, s] }); setSkill('') }
+  const delSkill = s => setC({ skills: c.skills.filter(x => x !== s) })
+  const addPast = () => { const t = ask('Job title?'); if (!t) return; const co = ask('Company?') || ''; const y = ask('Years (e.g. 2022–2024)?') || ''; setC({ past: [...(c.past || []), { id: uid('j'), title: t, company: co, years: y }] }) }
+  const delPast = id => setC({ past: (c.past || []).filter(j => j.id !== id) })
+  return (
+    <div style={{ maxWidth: 680 }}>
+      <Panel style={{ padding: '16px 18px', marginBottom: 14, borderLeft: `3px solid ${C.blue}` }}>
+        <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.14em', color: C.dim, textTransform: 'uppercase', marginBottom: 6 }}>Now</div>
+        <div style={{ fontFamily: F, fontSize: 16, fontWeight: 800, color: C.text }}>{c.current.title} · {c.current.company}</div>
+        <div style={{ fontFamily: F, fontSize: 12.5, color: C.muted, marginTop: 4 }}>{c.current.notes}</div>
+      </Panel>
+      <Panel style={{ padding: '16px 18px', marginBottom: 14, borderLeft: `3px solid ${C.amber}` }}>
+        <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.14em', color: C.dim, textTransform: 'uppercase', marginBottom: 6 }}>The destination</div>
+        <div style={{ fontFamily: F, fontSize: 14, fontWeight: 700, color: C.text }}>{c.target}</div>
+        <div style={{ fontFamily: F, fontSize: 12, color: C.muted, marginTop: 4 }}>Every skill below is a brick in that road.</div>
+      </Panel>
+      <div style={{ fontFamily: F, fontSize: 13, fontWeight: 800, margin: '18px 0 10px' }}>Skills I&rsquo;m stacking</div>
+      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>
+        {c.skills.map(s => <span key={s} style={{ fontFamily: F, fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 3, padding: '5px 12px', color: C.text }}>{s} <span onClick={() => delSkill(s)} style={{ color: C.dim, cursor: 'pointer' }}>×</span></span>)}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <input value={skill} onChange={e => setSkill(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addSkill() }} placeholder="+ new skill" style={{ ...fld, flex: 1 }} />
+        <button onClick={addSkill} style={obtn(C.blue)}>Add</button>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+        <span style={{ fontFamily: F, fontSize: 13, fontWeight: 800 }}>Where I&rsquo;ve been</span>
+        <button onClick={addPast} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 12, cursor: 'pointer' }}>+ add past job</button>
+      </div>
+      {(c.past || []).length === 0 ? <div style={{ fontFamily: F, fontSize: 12, color: C.dim }}>Add your past roles to build the timeline.</div> : (c.past || []).map(j => (
+        <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 13, padding: '9px 2px', borderBottom: `1px solid ${C.border}` }}>
+          <span style={{ color: C.text }}>{j.title}{j.company ? ' · ' + j.company : ''}</span>
+          <span style={{ color: C.muted }}>{j.years} <span onClick={() => delPast(j.id)} style={{ color: C.dim, cursor: 'pointer', marginLeft: 6 }}>×</span></span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── skills: languages + hobby XP bars ──
+const levelName = xp => xp < 15 ? 'Novice' : xp < 35 ? 'Beginner' : xp < 60 ? 'Intermediate' : xp < 80 ? 'Advanced' : xp < 95 ? 'Expert' : 'Master'
+
+function SkillsTab({ me, setMe }) {
+  const langs = me.languages || []
+  const hobbies = me.hobbies || []
+  const setLevel = (id, level) => setMe(m => ({ ...m, languages: m.languages.map(l => l.id === id ? { ...l, level } : l) }))
+  const patchHobby = (id, fn) => setMe(m => ({ ...m, hobbies: (m.hobbies || []).map(h => h.id === id ? fn(h) : h) }))
+  const logPractice = (id, minutes) => patchHobby(id, h => ({ ...h, xp: Math.min(100, +(h.xp + minutes / 30).toFixed(1)), log: [{ id: uid('s'), date: todayKey(), minutes }, ...(h.log || [])].slice(0, 300) }))
+  const setXp = id => { const v = ask('Set skill level 0–100:'); if (v == null || v === '') return; patchHobby(id, h => ({ ...h, xp: Math.max(0, Math.min(100, Number(v) || 0)) })) }
+  const addHobby = () => { const n = ask('Name the skill/hobby:'); if (!n) return; setMe(m => ({ ...m, hobbies: [...(m.hobbies || []), { id: uid('h'), name: n.trim(), xp: 0, log: [] }] })) }
+  const delHobby = id => { if (confirmSafe('Remove this skill?')) setMe(m => ({ ...m, hobbies: (m.hobbies || []).filter(h => h.id !== id) })) }
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, marginBottom: 4 }}>Languages — the UN currency</div>
+      <p style={{ fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 14 }}>Tap the level you&rsquo;re at. Spanish to B2 and French to B1 make you a real international candidate.</p>
+      {langs.map(l => (
+        <Panel key={l.id} style={{ padding: '15px 17px', marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <span style={{ fontFamily: F, fontSize: 15, fontWeight: 700 }}>{l.flag} {l.name}</span>
+            <span style={{ fontFamily: F, fontSize: 11, color: C.muted }}>target: {LEVELS[l.target]}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {LEVELS.map((lv, i) => {
+              const reached = i <= l.level && i > 0
+              const isTarget = i === l.target
+              return (
+                <button key={lv} onClick={() => setLevel(l.id, i)} style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${reached ? C.green : isTarget ? C.amber : C.border}`, background: reached ? 'rgba(125,155,114,0.15)' : 'transparent', color: reached ? C.green : isTarget ? C.amber : C.muted }}>{lv}</button>
+              )
+            })}
+          </div>
+        </Panel>
+      ))}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '24px 0 4px' }}>
+        <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800 }}>Skill bars</div>
+        <button onClick={addHobby} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 12, cursor: 'pointer' }}>+ add a skill</button>
+      </div>
+      <p style={{ fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 14 }}>Practice fills the bar — 30 minutes = 1 point. Level yourself up like a character.</p>
+      {hobbies.map(h => {
+        const week = (h.log || []).filter(s => (Date.now() - new Date(s.date).getTime()) < 7 * 86400000)
+        const totalH = Math.round((h.log || []).reduce((a, s) => a + s.minutes, 0) / 60)
+        return (
+          <Panel key={h.id} style={{ padding: '15px 17px', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+              <span style={{ fontFamily: F, fontSize: 15, fontWeight: 700, color: C.text }}>{h.name}</span>
+              <span style={{ fontFamily: F, fontSize: 11, color: C.holo, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{levelName(h.xp)} · {Math.round(h.xp)}/100</span>
+            </div>
+            <div style={{ height: 10, background: C.surface2, borderRadius: 3, overflow: 'hidden', marginBottom: 10, position: 'relative' }}>
+              <div style={{ height: '100%', width: h.xp + '%', background: `linear-gradient(90deg, var(--holo), ${C.blue})`, borderRadius: 3, transition: 'width 0.4s' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: F, fontSize: 11, color: C.dim }}>{week.length} session{week.length !== 1 ? 's' : ''} this week · {totalH}h all-time</span>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button onClick={() => logPractice(h.id, 15)} style={obtn(C.muted)}>+15m</button>
+                <button onClick={() => logPractice(h.id, 30)} style={obtn(C.holo)}>+30m</button>
+                <button onClick={() => logPractice(h.id, 60)} style={obtn(C.holo)}>+1h</button>
+                <button onClick={() => setXp(h.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 11, cursor: 'pointer' }}>set</button>
+                <button onClick={() => delHobby(h.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 12, cursor: 'pointer' }}>×</button>
+              </div>
+            </div>
+          </Panel>
+        )
+      })}
+    </div>
+  )
+}
+
+function WeekTab({ me, applyWeek, ping }) {
+  const tmpl = buildWeekTemplate(me)
+  const byDay = DAYS_FULL.map((d, i) => ({ day: d, items: tmpl.filter(t => t.dayOfWeek === i) }))
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <Panel style={{ padding: '18px 20px', marginBottom: 18, borderLeft: `3px solid ${C.amber}` }}>
+        <div style={{ fontFamily: F, fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Your weekly rhythm</div>
+        <div style={{ fontFamily: F, fontSize: 12.5, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+          Work owns Mon–Fri days, so everything else lives in the edges: gym after work, languages and guitar rotate evenings, Substack gets Saturday morning, Sunday is Flight Pathways plus the weekly review. One tap loads it all into your calendar — then Sync to phone so it alarms you.
+        </div>
+        <button onClick={() => { const n = applyWeek(); ping(n > 0 ? `Added ${n} blocks to your calendar →` : 'Already loaded — check your calendar') }}
+          style={{ fontFamily: F, fontSize: 13, fontWeight: 700, padding: '11px 20px', borderRadius: 3, cursor: 'pointer', border: 'none', background: C.blue, color: '#0b0b0c' }}>Load my week into the calendar →</button>
+      </Panel>
+      {byDay.map(({ day, items }) => items.length > 0 && (
+        <div key={day} style={{ marginBottom: 14 }}>
+          <div style={{ fontFamily: F, fontSize: 13, fontWeight: 800, marginBottom: 6 }}>{day}</div>
+          {items.sort((a, b) => a.startH - b.startH).map((t, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: '9px 13px', marginBottom: 6 }}>
+              <div style={{ width: 4, height: 22, borderRadius: 2, background: getEvColor(t.color).border }} />
+              <span style={{ flex: 1, fontFamily: F, fontSize: 13, color: C.text }}>{t.title}</span>
+              <span style={{ fontFamily: F, fontSize: 11, color: C.muted }}>{t12(t.startH, t.startM)}–{t12(t.endH, t.endM)}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+      <div style={{ fontFamily: F, fontSize: 11, color: C.dim }}>Change your gym days in the Gym tab and this plan follows. Loading skips anything already on your calendar.</div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// GOALS — the unlock chain
+// ════════════════════════════════════════════════════════════════════════════════
+function GoalsView({ goals, setGoals, vision, setVision, finance, me }) {
+  const [tab, setTab] = useState('goals')
+  const [motiv, setMotiv] = useState(false)
+  const setV = patch => setVision(v => ({ ...v, ...patch }))
+  const images = (vision.items || []).filter(i => i.kind === 'image')
+  return (
+    <div style={{ animation: 'fadeUp 0.3s ease', paddingBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
+        <H1>Goals</H1>
+        {images.length > 0 && tab === 'board' && <button onClick={() => setMotiv(true)} style={obtn(C.amber)}>Motivation mode</button>}
+      </div>
+      <div style={{ display: 'flex', gap: 4, margin: '14px 0 20px', borderBottom: `1px solid ${C.border}` }}>
+        {[['goals', 'The Chain'], ['board', 'Board'], ['wins', 'Wins']].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={{ fontFamily: F, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '10px 13px', cursor: 'pointer', border: 'none', background: 'transparent', color: tab === id ? C.blue : C.muted, borderBottom: tab === id ? `2px solid ${C.blue}` : '2px solid transparent' }}>{label}</button>
+        ))}
+      </div>
+      {tab === 'goals' && <ChainTab goals={goals} setGoals={setGoals} finance={finance} me={me} />}
+      {tab === 'board' && <BoardTab vision={vision} setV={setV} />}
+      {tab === 'wins' && <WinsTab vision={vision} setV={setV} />}
+      {motiv && <MotivationMode images={images} onClose={() => setMotiv(false)} />}
+    </div>
+  )
+}
+
+function ChainTab({ goals, setGoals, finance, me }) {
+  const [postTitle, setPostTitle] = useState('')
+  const toggleMs = (listKey, gid, mid) => setGoals(g => ({ ...g, [listKey]: g[listKey].map(goal => goal.id === gid ? { ...goal, ms: goal.ms.map(m => m.id === mid ? { ...m, done: !m.done } : m) } : goal) }))
+  const pct = goal => { const t = goal.ms.length; const d = goal.ms.filter(m => m.done).length; return t ? Math.round(d / t * 100) : 0 }
+  const debts = finance.debts || []
+  const totalBalance = debts.reduce((a, d) => a + Number(d.balance || 0), 0)
+  const sub = goals.substack || { posts: 0, subs: 0, log: [] }
+  const setSub = p => setGoals(g => ({ ...g, substack: { ...(g.substack || {}), ...p } }))
+  const logPost = () => { const t = postTitle.trim() || 'Untitled post'; setSub({ posts: (sub.posts || 0) + 1, log: [{ id: uid('sp'), date: todayKey(), title: t }, ...(sub.log || [])].slice(0, 100) }); setPostTitle('') }
+  const editSubs = () => { const v = ask('Current subscriber count?'); if (v != null && v !== '') setSub({ subs: Number(v) || 0 }) }
+  const es = (me.languages || []).find(l => l.id === 'es')
+
+  const goalCard = (goal, idx, listKey, extra) => {
+    const p = pct(goal)
+    const complete = p === 100
+    return (
+      <Panel key={goal.id} style={{ padding: '17px 19px', marginBottom: 14, borderLeft: `3px solid ${complete ? C.green : idx === 0 && listKey === 'chain' ? C.amber : C.border2}` }}>
+        <div style={{ display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+          {listKey === 'chain' && <div style={{ fontFamily: F, fontSize: 22, fontWeight: 800, color: complete ? C.green : C.blue, opacity: 0.55, lineHeight: 1, minWidth: 24 }}>{idx + 1}</div>}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ fontFamily: F, fontSize: 16, fontWeight: 800, color: C.text }}>{goal.title} {complete && '✓'}</div>
+              <span style={{ fontFamily: F, fontSize: 12, color: complete ? C.green : C.muted, fontWeight: 700 }}>{p}%</span>
+            </div>
+            <div style={{ fontFamily: F, fontSize: 12, color: C.muted, margin: '3px 0 10px' }}>{goal.sub}</div>
+            <div style={{ height: 6, background: C.surface2, borderRadius: 3, overflow: 'hidden', marginBottom: 12 }}><div style={{ height: '100%', width: p + '%', background: complete ? C.green : C.blue, borderRadius: 3, transition: 'width 0.3s' }} /></div>
+            {extra}
+            {goal.ms.map(m => (
+              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 0' }}>
+                <div onClick={() => toggleMs(listKey, goal.id, m.id)} style={{ width: 17, height: 17, borderRadius: 3, border: `1.5px solid ${m.done ? C.green : C.border2}`, background: m.done ? C.green : 'transparent', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0b0b0c', fontSize: 10 }}>{m.done ? '✓' : ''}</div>
+                <span style={{ fontFamily: F, fontSize: 13, color: m.done ? C.muted : C.text, textDecoration: m.done ? 'line-through' : 'none' }}>{m.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Panel>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginBottom: 16, lineHeight: 1.55 }}>No fake deadlines — the goals unlock in <b style={{ color: C.text }}>sequence</b>. Money first, because every dollar of interest you stop paying becomes fuel for everything below it.</p>
+      {goals.chain.map((g, i) => goalCard(g, i, 'chain',
+        g.id === 'g_fin' ? <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim, marginBottom: 10 }}>Live from Money: <b style={{ color: totalBalance > 0 ? C.red : C.green }}>{money(totalBalance, false)}</b> still on the books.</div>
+          : g.id === 'g_un' && es ? <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim, marginBottom: 10 }}>Live from Skills: Spanish is at <b style={{ color: C.amber }}>{LEVELS[es.level]}</b> — B2 is the bar.</div> : null))}
+
+      <div style={{ fontFamily: F, fontSize: 15, fontWeight: 800, margin: '24px 0 12px' }}>Running alongside</div>
+
+      <Panel style={{ padding: '17px 19px', marginBottom: 14, borderLeft: `3px solid ${C.amber}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+          <div style={{ fontFamily: F, fontSize: 16, fontWeight: 800 }}>Substack</div>
+          <span onClick={editSubs} style={{ fontFamily: F, fontSize: 12, color: C.muted, cursor: 'pointer' }}>{sub.subs || 0} subscribers ✎</span>
+        </div>
+        <div style={{ fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 12 }}>&ldquo;Big on Substack&rdquo; is just &ldquo;published consistently for a long time.&rdquo; Saturday mornings are yours — protect them.</div>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+          <div style={{ flex: 1, textAlign: 'center', background: C.surface2, borderRadius: 4, padding: '10px 6px' }}>
+            <div style={{ fontFamily: F, fontSize: 22, fontWeight: 800, color: C.amber }}>{sub.posts || 0}</div>
+            <div style={{ fontFamily: F, fontSize: 9.5, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>posts published</div>
+          </div>
+          <div style={{ flex: 1, textAlign: 'center', background: C.surface2, borderRadius: 4, padding: '10px 6px' }}>
+            <div style={{ fontFamily: F, fontSize: 22, fontWeight: 800, color: C.text }}>{(sub.log || []).filter(l => (Date.now() - new Date(l.date).getTime()) < 30 * 86400000).length}</div>
+            <div style={{ fontFamily: F, fontSize: 9.5, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>last 30 days</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input value={postTitle} onChange={e => setPostTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') logPost() }} placeholder="post title…" style={{ ...fld, flex: 1 }} />
+          <button onClick={logPost} style={obtn(C.amber)}>+ Published one</button>
+        </div>
+        {(sub.log || []).slice(0, 4).map(l => <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12, color: C.muted, padding: '6px 0', borderBottom: `1px solid ${C.border}` }}><span>{l.title}</span><span style={{ color: C.dim }}>{l.date}</span></div>)}
+      </Panel>
+
+      {goals.parallel.map((g, i) => goalCard(g, i, 'parallel', null))}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // BOOT
 // ════════════════════════════════════════════════════════════════════════════════
+const BOOT_LINES = ['Lighting the forge...', 'You are not finished. That is the point.', 'What you avoid today is still here tomorrow.', 'So pick one hard thing. Start there.', 'Back to work.']
 function BootScreen() {
   const [n, setN] = useState(0)
   useEffect(() => { if (n < BOOT_LINES.length) { const t = setTimeout(() => setN(n + 1), 360); return () => clearTimeout(t) } }, [n])
@@ -1094,12 +1497,12 @@ function BootScreen() {
     <div style={{ position: 'fixed', inset: 0, background: '#0b0b0c', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5000 }}>
       <div style={{ width: 380, maxWidth: '90%' }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, animation: 'glowPulse 3s ease-in-out infinite' }}><Ember size={56} color="#f2f2f3" glow /></div>
-          <div style={{ fontFamily: SER, fontSize: 30, fontWeight: 600, letterSpacing: '0.18em', color: '#ececee' }}>FORGE</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Ember size={52} color="#f2f2f3" /></div>
+          <div style={{ fontFamily: F, fontSize: 28, fontWeight: 800, letterSpacing: '0.2em', color: '#ececee' }}>FORGE</div>
         </div>
-        <div style={{ background: '#111113', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 3, padding: '20px 22px', minHeight: 170 }}>
+        <div style={{ background: '#111113', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '20px 22px', minHeight: 168 }}>
           {BOOT_LINES.slice(0, n).map((l, i) => (
-            <div key={i} style={{ fontFamily: i === BOOT_LINES.length - 1 ? SER : F, fontSize: i === BOOT_LINES.length - 1 ? 16 : 13, fontWeight: i === BOOT_LINES.length - 1 ? 600 : 400, color: i === BOOT_LINES.length - 1 ? '#ececee' : '#8a8f98', lineHeight: '24px', animation: 'slideIn 0.2s ease', marginTop: i === BOOT_LINES.length - 1 ? 6 : 0 }}>
+            <div key={i} style={{ fontFamily: F, fontSize: i === BOOT_LINES.length - 1 ? 15 : 13, fontWeight: i === BOOT_LINES.length - 1 ? 700 : 400, color: i === BOOT_LINES.length - 1 ? '#ececee' : '#8a8f98', lineHeight: '24px', animation: 'slideIn 0.2s ease', marginTop: i === BOOT_LINES.length - 1 ? 6 : 0 }}>
               <span style={{ color: '#4d5057', marginRight: 8 }}>{i === BOOT_LINES.length - 1 ? '❯' : '·'}</span>{l}
             </div>
           ))}
@@ -1110,19 +1513,19 @@ function BootScreen() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-// SHELL
+// SHELL — top nav layout
 // ════════════════════════════════════════════════════════════════════════════════
 function useIsMobile() {
   const [m, setM] = useState(typeof window !== 'undefined' && window.innerWidth <= 820)
   useEffect(() => { const f = () => setM(window.innerWidth <= 820); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [])
   return m
 }
-const NAV = [['calendar', 'Calendar', '01'], ['today', 'Today', '02'], ['me', 'Me', '03'], ['money', 'Money', '04'], ['goals', 'Goals', '05'], ['avoiding', 'Avoiding', '06'], ['journal', 'Journal', '07']]
+const NAV = [['calendar', 'Calendar'], ['today', 'Today'], ['me', 'Me'], ['money', 'Money'], ['goals', 'Goals'], ['avoiding', 'Avoiding'], ['journal', 'Journal']]
 
 function ForgeApp({ profileName, onLock }) {
   const [booting, setBooting] = useState(true)
   const [ready, setReady] = useState(false)
-  const [view, setView] = useState('calendar')
+  const [view, setView] = useState('today')
   const [weekOffset, setWeekOffset] = useState(0)
   const [theme, setThemeState] = useState(loadTheme)
   const [events, setEvents] = useState(loadEvents)
@@ -1143,11 +1546,9 @@ function ForgeApp({ profileName, onLock }) {
 
   const setTheme = t => { setThemeState(t); saveTheme(t) }
   const changeEvents = e => { setEvents(e); saveEvents(e) }
-
   const scheduleBlock = ({ title, desc = '', color = 'amber' }) => {
     const dow = (new Date().getDay() + 1) % 7
-    const next = [...events, { id: uid('e'), title, desc, color, startH: 9, startM: 0, endH: 10, endM: 0, dayOfWeek: dow, allDay: false, repeat: 'none' }]
-    changeEvents(next)
+    changeEvents([...events, { id: uid('e'), title, desc, color, startH: 9, startM: 0, endH: 10, endM: 0, dayOfWeek: dow, allDay: false, repeat: 'none' }])
   }
   const addToToday = text => {
     const k = todayKey(); const dd = data[k] || { done: {}, notes: '', personal: [] }
@@ -1168,65 +1569,67 @@ function ForgeApp({ profileName, onLock }) {
 
   if (booting) return <><style>{CSS}</style><BootScreen /></>
 
+  const smallBtn = { background: 'none', border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, fontFamily: F, fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0 12px', height: 32, cursor: 'pointer' }
+
   return (
     <>
       <style>{CSS}</style>
       <div className="app-root" data-theme={theme}>
         <Background />
-        <div className="topbar-m">
-          <Ember size={24} color={C.blue} glow />
-          <span style={{ fontFamily: SER, fontSize: 17, fontWeight: 600, letterSpacing: '0.14em', color: C.text }}>FORGE</span>
-          {profileName && <span style={{ fontFamily: F, fontSize: 11, color: C.dim }}>· {profileName}</span>}
-          <div style={{ flex: 1 }} />
-          <span style={{ fontFamily: F, fontSize: 12, color: streak > 0 ? C.amber : C.dim, fontWeight: 600 }}>{streak}</span>
-          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 4, color: C.muted, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', padding: '0 12px', height: 34, cursor: 'pointer', textTransform: 'uppercase' }}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
-          <button onClick={onLock} title="Lock" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 4, color: C.muted, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', padding: '0 12px', height: 34, cursor: 'pointer', textTransform: 'uppercase' }}>Lock</button>
-        </div>
 
-        <div style={{ display: 'flex', minHeight: '100vh', position: 'relative', zIndex: 1, opacity: ready ? 1 : 0, transition: 'opacity 0.5s ease' }}>
-          <nav className="only-desktop" style={{ width: 220, flexShrink: 0, background: 'var(--surface)', borderRight: `1px solid ${C.border}`, padding: '24px 12px', display: 'flex', flexDirection: 'column', gap: 2, position: 'sticky', top: 0, height: '100vh', zIndex: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 26, paddingLeft: 8 }}>
-              <div style={{ animation: 'glowPulse 7s ease-in-out infinite' }}><Ember size={30} color={C.blue} glow /></div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontFamily: SER, fontSize: 20, fontWeight: 600, color: C.text, lineHeight: 1, letterSpacing: '0.14em' }}>FORGE</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                  <span style={{ fontFamily: F, fontSize: 10, color: C.muted, letterSpacing: '0.06em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profileName || 'made, not born'}</span>
-                  <button onClick={onLock} title="Lock" style={{ background: 'none', border: 'none', color: C.dim, fontSize: 9, cursor: 'pointer', padding: 0, letterSpacing: '0.08em', textTransform: 'uppercase' }}>lock</button>
-                </div>
-              </div>
-            </div>
-            {NAV.map(([id, label, code]) => <NavItem key={id} code={code} label={label} active={view === id} onClick={() => setView(id)} badge={id === 'journal' && journalDue} />)}
-            <div style={{ marginTop: 16 }}>
-              <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 4, cursor: 'pointer', border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontFamily: F, fontSize: 12 }}>{theme === 'dark' ? 'Switch to light' : 'Switch to dark'}</button>
-            </div>
-            <div style={{ marginTop: 'auto', paddingTop: 12 }}>
-              <div style={{ background: C.surface, border: `1px solid ${streak > 0 ? C.border2 : C.border}`, borderRadius: 4, padding: '16px 12px', textAlign: 'center', boxShadow: streak > 0 ? 'var(--card-shadow)' : 'none' }}>
-                <div style={{ fontFamily: SER, fontSize: 42, fontWeight: 600, color: C.amber, lineHeight: 1 }}>{streak}</div>
-                <div style={{ fontFamily: F, fontSize: 8, color: C.muted, letterSpacing: '0.14em', textTransform: 'uppercase' }}>day streak</div>
-                <div style={{ fontFamily: F, fontSize: 9, marginTop: 8, color: streak > 0 ? C.amber : C.dim }}>{streak > 0 ? "do not break the chain" : 'today can be day one'}</div>
-              </div>
-            </div>
+        {/* desktop top nav */}
+        <header className="topnav only-desktop">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginRight: 14 }}>
+            <Ember size={20} color={C.blue} />
+            <span style={{ fontFamily: F, fontSize: 14, fontWeight: 800, letterSpacing: '0.18em', color: C.text }}>FORGE</span>
+            {profileName && <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>/ {profileName}</span>}
+          </div>
+          <nav style={{ display: 'flex', alignItems: 'center' }}>
+            {NAV.map(([id, label]) => (
+              <button key={id} className={'navbtn' + (view === id ? ' active' : '')} onClick={() => setView(id)} style={{ position: 'relative' }}>
+                {label}
+                {id === 'journal' && journalDue && <span style={{ position: 'absolute', top: 14, right: 4, width: 6, height: 6, borderRadius: '50%', background: C.red, animation: 'dotPulse 1.6s ease-in-out infinite' }} />}
+              </button>
+            ))}
           </nav>
+          <div style={{ flex: 1 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontFamily: F, fontSize: 12, color: streak > 0 ? C.amber : C.dim }}><b style={{ fontSize: 15, fontWeight: 800 }}>{streak}</b> <span style={{ fontSize: 9, letterSpacing: '0.1em' }}>DAY STREAK</span></span>
+            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={smallBtn}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
+            <button onClick={onLock} style={smallBtn}>Lock</button>
+          </div>
+        </header>
 
-          <main className="main-pad" style={{ flex: 1, minWidth: 0, padding: '28px 40px', overflowX: 'hidden' }}>
-            {view === 'calendar' && <WeeklyCalendar weekOffset={weekOffset} setWeekOffset={setWeekOffset} events={events} onEventsChange={changeEvents} isMobile={isMobile} theme={theme} />}
-            {view === 'today' && <TodayView data={data} setData={setData} events={events} />}
-            {view === 'me' && <MeView me={me} setMe={setMe} applyWeek={applyWeek} isMobile={isMobile} />}
-            {view === 'money' && <MoneyView finance={finance} setFinance={setFinance} isMobile={isMobile} />}
-            {view === 'goals' && <GoalsView goals={goals} setGoals={setGoals} vision={vision} setVision={setVision} finance={finance} me={me} />}
-            {view === 'avoiding' && <AvoidingView avoiding={avoiding} setAvoiding={setAvoiding} scheduleBlock={scheduleBlock} addToToday={addToToday} />}
-            {view === 'journal' && <JournalView vision={vision} setVision={setVision} data={data} />}
-          </main>
+        {/* mobile top bar */}
+        <div className="topbar-m">
+          <Ember size={22} color={C.blue} />
+          <span style={{ fontFamily: F, fontSize: 15, fontWeight: 800, letterSpacing: '0.16em', color: C.text }}>FORGE</span>
+          {profileName && <span style={{ fontFamily: F, fontSize: 11, color: C.dim }}>/ {profileName}</span>}
+          <div style={{ flex: 1 }} />
+          <span style={{ fontFamily: F, fontSize: 12, color: streak > 0 ? C.amber : C.dim, fontWeight: 700 }}>{streak}</span>
+          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={smallBtn}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
+          <button onClick={onLock} style={smallBtn}>Lock</button>
         </div>
 
+        <main className="main-pad" style={{ position: 'relative', zIndex: 1, maxWidth: 1080, margin: '0 auto', padding: '30px 36px 70px', opacity: ready ? 1 : 0, transition: 'opacity 0.5s ease' }}>
+          {view === 'calendar' && <WeeklyCalendar weekOffset={weekOffset} setWeekOffset={setWeekOffset} events={events} onEventsChange={changeEvents} isMobile={isMobile} theme={theme} />}
+          {view === 'today' && <TodayView data={data} setData={setData} events={events} />}
+          {view === 'me' && <MeView me={me} setMe={setMe} applyWeek={applyWeek} isMobile={isMobile} />}
+          {view === 'money' && <MoneyView finance={finance} setFinance={setFinance} isMobile={isMobile} />}
+          {view === 'goals' && <GoalsView goals={goals} setGoals={setGoals} vision={vision} setVision={setVision} finance={finance} me={me} />}
+          {view === 'avoiding' && <AvoidingView avoiding={avoiding} setAvoiding={setAvoiding} scheduleBlock={scheduleBlock} addToToday={addToToday} />}
+          {view === 'journal' && <JournalView vision={vision} setVision={setVision} data={data} />}
+        </main>
+
+        {/* mobile bottom nav */}
         <div className="bottom-nav">
           {NAV.map(([id]) => {
             const active = view === id
             const short = { calendar: 'Plan', today: 'Today', me: 'Me', money: 'Money', goals: 'Goals', avoiding: 'Avoid', journal: 'Log' }[id]
             return (
               <button key={id} onClick={() => setView(id)}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: active ? C.blue : 'transparent', boxShadow: active ? `0 0 7px ${C.blueGlow}` : 'none' }} />
-                <span style={{ fontFamily: F, fontSize: 9, color: active ? C.blue : C.muted, fontWeight: active ? 600 : 400 }}>{short}</span>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: active ? C.blue : 'transparent' }} />
+                <span style={{ fontFamily: F, fontSize: 9, color: active ? C.blue : C.muted, fontWeight: active ? 700 : 400 }}>{short}</span>
                 {id === 'journal' && journalDue && !active && <div style={{ position: 'absolute', top: 4, right: '22%', width: 6, height: 6, borderRadius: '50%', background: C.red }} />}
               </button>
             )
@@ -1244,7 +1647,7 @@ const AVATAR_COLORS = ['#8a8f98', '#7d9b72', '#c65949', '#6b7f96', '#8f7a9e', '#
 const avatarColor = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return AVATAR_COLORS[h % AVATAR_COLORS.length] }
 
 function LoginGate({ profiles, setProfiles, onUnlock }) {
-  const G = { bg: '#0b0b0c', card: '#111113', card2: '#17171a', border: 'rgba(255,255,255,0.12)', gold: '#f2f2f3', goldDim: 'rgba(255,255,255,0.05)', text: '#ececee', muted: '#8a8f98', dim: '#4d5057', red: '#c65949' }
+  const G = { bg: '#0b0b0c', card: '#111113', card2: '#17171a', border: 'rgba(255,255,255,0.1)', accent: '#f2f2f3', text: '#ececee', muted: '#8a8f98', dim: '#4d5057', red: '#c65949' }
   const [mode, setMode] = useState(profiles.length ? 'pick' : 'create')
   const [selId, setSelId] = useState(loadLastProfile() || '')
   const [pass, setPass] = useState('')
@@ -1263,55 +1666,53 @@ function LoginGate({ profiles, setProfiles, onUnlock }) {
   }
   const removeProfile = p => { if (!confirmSafe('Delete "' + p.name + '" and ALL its data on this device?')) return; deleteProfileData(p.id); const next = profiles.filter(x => x.id !== p.id); saveProfiles(next); setProfiles(next); if (selId === p.id) setSelId(''); if (next.length === 0) setMode('create') }
   const input = { width: '100%', background: G.card2, border: `1px solid ${G.border}`, borderRadius: 4, color: G.text, fontSize: 16, padding: '12px 13px', outline: 'none', fontFamily: F, boxSizing: 'border-box', marginBottom: 10 }
-  const goldBtn = { width: '100%', fontFamily: F, fontSize: 14, fontWeight: 600, padding: 12, borderRadius: 4, cursor: 'pointer', border: 'none', background: G.gold, color: '#0b0b0c', marginTop: 4 }
-
+  const accBtn = { width: '100%', fontFamily: F, fontSize: 14, fontWeight: 700, padding: 12, borderRadius: 4, cursor: 'pointer', border: 'none', background: G.accent, color: '#0b0b0c', marginTop: 4 }
   return (
-    <div style={{ position: 'fixed', inset: 0, background: G.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, overflow: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: G.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, overflow: 'auto', fontFamily: F }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
-      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 90% 60% at 50% 118%,' + G.goldDim + ' 0%,transparent 62%)', pointerEvents: 'none' }} />
       <div style={{ position: 'relative', width: 380, maxWidth: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: 26 }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Ember size={52} color={G.gold} glow /></div>
-          <div style={{ fontFamily: SER, fontSize: 30, fontWeight: 600, letterSpacing: '0.18em', color: G.text }}>FORGE</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Ember size={48} color={G.accent} /></div>
+          <div style={{ fontFamily: F, fontSize: 27, fontWeight: 800, letterSpacing: '0.2em', color: G.text }}>FORGE</div>
           <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.32em', color: G.dim, marginTop: 6, textTransform: 'uppercase' }}>made, not born</div>
         </div>
-        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 3, padding: '22px 20px', boxShadow: '0 10px 40px rgba(0,0,0,0.45)' }}>
+        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 6, padding: '22px 20px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
           {mode === 'pick' ? (
             <div>
               {!sel ? (<>
-                <div style={{ fontFamily: SER, fontSize: 17, fontWeight: 600, color: G.text, marginBottom: 14 }}>Who&rsquo;s this?</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: G.text, marginBottom: 14 }}>Who&rsquo;s this?</div>
                 {profiles.map(p => (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 11, borderRadius: 5, cursor: 'pointer', border: `1px solid ${G.border}`, marginBottom: 8, background: G.card2 }} onClick={() => { setSelId(p.id); setPass(''); setErr('') }}>
-                    <div style={{ width: 38, height: 38, borderRadius: '50%', background: avatarColor(p.name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: SER, fontSize: 17, fontWeight: 600, color: '#0b0b0c' }}>{(p.name[0] || '?').toUpperCase()}</div>
-                    <span style={{ flex: 1, fontFamily: F, fontSize: 14, fontWeight: 600, color: G.text }}>{p.name}</span>
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 11, borderRadius: 4, cursor: 'pointer', border: `1px solid ${G.border}`, marginBottom: 8, background: G.card2 }} onClick={() => { setSelId(p.id); setPass(''); setErr('') }}>
+                    <div style={{ width: 38, height: 38, borderRadius: '50%', background: avatarColor(p.name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 800, color: '#0b0b0c' }}>{(p.name[0] || '?').toUpperCase()}</div>
+                    <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: G.text }}>{p.name}</span>
                     <span onClick={e => { e.stopPropagation(); removeProfile(p) }} style={{ color: G.dim, fontSize: 13, cursor: 'pointer', padding: '2px 6px' }}>×</span>
                   </div>
                 ))}
-                <button onClick={() => { setMode('create'); setErr(''); setNm(''); setP1(''); setP2('') }} style={{ width: '100%', fontFamily: F, fontSize: 13, fontWeight: 600, padding: 11, borderRadius: 4, cursor: 'pointer', border: `1px dashed ${G.border}`, background: 'transparent', color: G.muted, marginTop: 4 }}>+ Add someone</button>
+                <button onClick={() => { setMode('create'); setErr(''); setNm(''); setP1(''); setP2('') }} style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: 11, borderRadius: 4, cursor: 'pointer', border: `1px dashed ${G.border}`, background: 'transparent', color: G.muted, marginTop: 4, fontFamily: F }}>+ Add someone</button>
               </>) : (<>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                  <div style={{ width: 42, height: 42, borderRadius: '50%', background: avatarColor(sel.name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: SER, fontSize: 19, fontWeight: 600, color: '#0b0b0c' }}>{(sel.name[0] || '?').toUpperCase()}</div>
-                  <div><div style={{ fontFamily: SER, fontSize: 17, fontWeight: 600, color: G.text }}>{sel.name}</div><div onClick={() => { setSelId(''); setErr('') }} style={{ fontFamily: F, fontSize: 11, color: G.muted, cursor: 'pointer' }}>← not you?</div></div>
+                  <div style={{ width: 42, height: 42, borderRadius: '50%', background: avatarColor(sel.name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: '#0b0b0c' }}>{(sel.name[0] || '?').toUpperCase()}</div>
+                  <div><div style={{ fontSize: 16, fontWeight: 800, color: G.text }}>{sel.name}</div><div onClick={() => { setSelId(''); setErr('') }} style={{ fontSize: 11, color: G.muted, cursor: 'pointer' }}>← not you?</div></div>
                 </div>
                 <input autoFocus type="password" value={pass} onChange={e => { setPass(e.target.value); setErr('') }} onKeyDown={e => { if (e.key === 'Enter') unlock() }} placeholder="Passcode" style={input} />
-                {err && <div style={{ fontFamily: F, fontSize: 12, color: G.red, marginBottom: 8 }}>{err}</div>}
-                <button onClick={unlock} style={goldBtn}>Unlock</button>
+                {err && <div style={{ fontSize: 12, color: G.red, marginBottom: 8 }}>{err}</div>}
+                <button onClick={unlock} style={accBtn}>Unlock</button>
               </>)}
             </div>
           ) : (
             <div>
-              <div style={{ fontFamily: SER, fontSize: 17, fontWeight: 600, color: G.text, marginBottom: 4 }}>{profiles.length ? 'New profile' : 'Set up your profile'}</div>
-              <div style={{ fontFamily: F, fontSize: 11.5, color: G.muted, marginBottom: 16, lineHeight: 1.5 }}>{profiles.length ? 'Separate space, separate passcode.' : 'This locks your space on this device. Your existing data moves into this first profile.'}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: G.text, marginBottom: 4 }}>{profiles.length ? 'New profile' : 'Set up your profile'}</div>
+              <div style={{ fontSize: 11.5, color: G.muted, marginBottom: 16, lineHeight: 1.5 }}>{profiles.length ? 'Separate space, separate passcode.' : 'This locks your space on this device. Your existing data moves into this first profile.'}</div>
               <input value={nm} onChange={e => { setNm(e.target.value); setErr('') }} placeholder="Name" style={input} />
               <input type="password" value={p1} onChange={e => { setP1(e.target.value); setErr('') }} placeholder="Passcode (4+ characters)" style={input} />
               <input type="password" value={p2} onChange={e => { setP2(e.target.value); setErr('') }} onKeyDown={e => { if (e.key === 'Enter') create() }} placeholder="Confirm passcode" style={input} />
-              {err && <div style={{ fontFamily: F, fontSize: 12, color: G.red, marginBottom: 8 }}>{err}</div>}
-              <button onClick={create} style={goldBtn}>Create &amp; enter</button>
-              {profiles.length > 0 && <button onClick={() => { setMode('pick'); setErr('') }} style={{ width: '100%', fontFamily: F, fontSize: 12, padding: 10, borderRadius: 4, cursor: 'pointer', border: 'none', background: 'transparent', color: G.muted, marginTop: 6 }}>← back</button>}
+              {err && <div style={{ fontSize: 12, color: G.red, marginBottom: 8 }}>{err}</div>}
+              <button onClick={create} style={accBtn}>Create &amp; enter</button>
+              {profiles.length > 0 && <button onClick={() => { setMode('pick'); setErr('') }} style={{ width: '100%', fontSize: 12, padding: 10, borderRadius: 4, cursor: 'pointer', border: 'none', background: 'transparent', color: G.muted, marginTop: 6, fontFamily: F }}>← back</button>}
             </div>
           )}
         </div>
-        <div style={{ fontFamily: F, fontSize: 10.5, color: G.dim, textAlign: 'center', marginTop: 14, lineHeight: 1.5 }}>A local lock for privacy — not bank-grade security. Forgot a passcode? There&rsquo;s no recovery; you&rsquo;d delete the profile and start fresh.</div>
+        <div style={{ fontSize: 10.5, color: G.dim, textAlign: 'center', marginTop: 14, lineHeight: 1.5 }}>A local lock for privacy — not bank-grade security. Forgot a passcode? No recovery — delete the profile and start fresh.</div>
       </div>
     </div>
   )
@@ -1378,406 +1779,4 @@ function buildICS(events, leadMin) {
   })
   L.push('END:VCALENDAR')
   return L.join('\r\n') + '\r\n'
-}
-
-// ════════════════════════════════════════════════════════════════════════════════
-// ME — Dion's hub: Body · Gym · Fuel · Career · Skills · Week
-// ════════════════════════════════════════════════════════════════════════════════
-const ME_TABS = [['body', 'Body'], ['gym', 'Gym'], ['fuel', 'Fuel'], ['career', 'Career'], ['skills', 'Skills'], ['week', 'My Week']]
-const obtnS = c => ({ fontFamily: F, fontSize: 12, fontWeight: 600, padding: '8px 13px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${c}`, background: 'transparent', color: c, whiteSpace: 'nowrap' })
-const lblS = { fontFamily: F, fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.dim, marginBottom: 5, display: 'block' }
-const fldS = { width: '100%', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 3, color: C.text, fontSize: 13, padding: '9px 11px', outline: 'none', fontFamily: F, resize: 'vertical' }
-
-function MeView({ me, setMe, applyWeek, isMobile }) {
-  const [tab, setTab] = useState('body')
-  const [flash, setFlash] = useState(null)
-  const ping = m => { setFlash(m); setTimeout(() => setFlash(null), 1800) }
-  return (
-    <div style={{ maxWidth: 860, margin: '0 auto', animation: 'fadeUp 0.3s ease', paddingBottom: 20 }}>
-      {flash && <div style={{ position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)', zIndex: 2000, background: C.surface3, border: `1px solid ${C.border2}`, borderRadius: 3, padding: '9px 18px', fontFamily: F, fontSize: 12, color: C.text, boxShadow: 'var(--card-shadow-sel)' }}>{flash}</div>}
-      <div style={{ marginBottom: 14 }}>
-        <h1 style={{ fontFamily: SER, fontSize: 'clamp(24px,4vw,32px)', fontWeight: 600 }}>Me</h1>
-        <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginTop: 6 }}>The person being forged. Body, work, skills — the raw material.</p>
-      </div>
-      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginBottom: 18, borderBottom: `1px solid ${C.border}` }}>
-        {ME_TABS.map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} style={{ fontFamily: F, fontSize: 12.5, fontWeight: tab === id ? 600 : 500, padding: '8px 13px', borderRadius: 4, cursor: 'pointer', border: 'none', background: tab === id ? C.blueDim : 'transparent', color: tab === id ? C.blue : C.muted, whiteSpace: 'nowrap' }}>{label}</button>
-        ))}
-      </div>
-      {tab === 'body' && <BodyTab me={me} setMe={setMe} isMobile={isMobile} />}
-      {tab === 'gym' && <GymTab me={me} setMe={setMe} />}
-      {tab === 'fuel' && <FuelTab me={me} />}
-      {tab === 'career' && <CareerTab me={me} setMe={setMe} />}
-      {tab === 'skills' && <SkillsTab me={me} setMe={setMe} />}
-      {tab === 'week' && <WeekTab me={me} applyWeek={applyWeek} ping={ping} />}
-    </div>
-  )
-}
-
-function BodyTab({ me, setMe, isMobile }) {
-  const [w, setW] = useState('')
-  const weighIns = (me.weighIns || []).slice().sort((a, b) => a.date.localeCompare(b.date))
-  const current = weighIns.length ? weighIns[weighIns.length - 1].lbs : me.startWeight
-  const lost = Math.max(0, me.startWeight - current)
-  const toGo = Math.max(0, current - me.goalWeight)
-  const totalSpan = me.startWeight - me.goalWeight
-  const pct = totalSpan > 0 ? Math.min(100, Math.round(lost / totalSpan * 100)) : 0
-  const log = () => { const v = Number(w); if (!v || v < 60 || v > 500) return; setMe(m => ({ ...m, weighIns: [...(m.weighIns || []).filter(x => x.date !== todayKey()), { id: uid('w'), date: todayKey(), lbs: v }] })); setW('') }
-  const delWeigh = id => setMe(m => ({ ...m, weighIns: (m.weighIns || []).filter(x => x.id !== id) }))
-  const editNums = () => { const s = ask('Start weight (lbs)?'); const g = ask('Goal weight (lbs)?'); setMe(m => ({ ...m, startWeight: Number(s) || m.startWeight, goalWeight: Number(g) || m.goalWeight })) }
-
-  // sparkline
-  const spark = (() => {
-    if (weighIns.length < 2) return null
-    const W = 560, H = 120, pad = 8
-    const lo = Math.min(...weighIns.map(x => x.lbs), me.goalWeight) - 2
-    const hi = Math.max(...weighIns.map(x => x.lbs), me.startWeight) + 2
-    const pts = weighIns.map((x, i) => {
-      const px = pad + (i / (weighIns.length - 1)) * (W - pad * 2)
-      const py = pad + (1 - (x.lbs - lo) / (hi - lo)) * (H - pad * 2)
-      return px + ',' + py
-    })
-    const goalY = pad + (1 - (me.goalWeight - lo) / (hi - lo)) * (H - pad * 2)
-    return (
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
-        <line x1={pad} y1={goalY} x2={W - pad} y2={goalY} stroke="var(--green)" strokeDasharray="5 5" strokeWidth="1.5" opacity="0.7" />
-        <text x={W - pad} y={goalY - 5} textAnchor="end" fontSize="10" fill="var(--green)" fontFamily="Inter">goal {me.goalWeight}</text>
-        <polyline points={pts.join(' ')} fill="none" stroke="var(--blue)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-        {weighIns.map((x, i) => { const [px, py] = pts[i].split(','); return <circle key={x.id} cx={px} cy={py} r="3.5" fill="var(--blue)" /> })}
-      </svg>
-    )
-  })()
-
-  return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
-        {[[`5'${me.heightIn % 12}"`, 'Height'], [current + ' lb', 'Current'], [me.goalWeight + ' lb', 'Goal'], [lost.toFixed(1) + ' lb', 'Lost so far']].map(([v, l]) => (
-          <Panel key={l} style={{ padding: '15px 16px' }}>
-            <div style={{ fontFamily: SER, fontSize: 'clamp(20px,3vw,26px)', fontWeight: 600, color: l === 'Lost so far' && lost > 0 ? C.green : C.text, lineHeight: 1 }}>{v}</div>
-            <div style={{ fontFamily: F, fontSize: 10.5, color: C.muted, marginTop: 6 }}>{l}</div>
-          </Panel>
-        ))}
-      </div>
-      <Panel style={{ padding: '16px 18px', marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 8 }}>
-          <span>{me.startWeight} → {me.goalWeight} lbs</span>
-          <span>{pct}% there · {toGo.toFixed(1)} lb to go <span onClick={editNums} style={{ cursor: 'pointer', color: C.dim }}>✎</span></span>
-        </div>
-        <div style={{ height: 12, background: C.surface2, borderRadius: 4, overflow: 'hidden' }}><div style={{ height: '100%', width: pct + '%', background: `linear-gradient(90deg,${C.blue},${C.green})`, borderRadius: 4, transition: 'width 0.4s' }} /></div>
-        <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginTop: 8 }}>At a steady 1–1.5 lb/week, {me.startWeight}→{me.goalWeight} is roughly a {Math.ceil(totalSpan / 1.25 / 4.3)}-month project. Slow is fine. Consistent is everything.</div>
-      </Panel>
-      <Panel style={{ padding: '16px 18px', marginBottom: 16 }}>
-        <span style={lblS}>Log today&rsquo;s weigh-in (same time each day — mornings are best)</span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input type="number" value={w} onChange={e => setW(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') log() }} placeholder={String(current)} style={{ ...fldS, flex: 1 }} />
-          <button onClick={log} style={obtnS(C.blue)}>Log it</button>
-        </div>
-      </Panel>
-      {spark && <Panel style={{ padding: '16px 18px', marginBottom: 16 }}>{spark}</Panel>}
-      {weighIns.length > 0 && (
-        <div>
-          <div style={{ fontFamily: SER, fontSize: 14, fontWeight: 600, marginBottom: 8 }}>History</div>
-          {weighIns.slice().reverse().slice(0, 10).map(x => (
-            <div key={x.id} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12.5, color: C.muted, padding: '7px 2px', borderBottom: `1px solid ${C.border}` }}>
-              <span>{x.date}</span><span style={{ color: C.text, fontWeight: 600 }}>{x.lbs} lb <span onClick={() => delWeigh(x.id)} style={{ color: C.dim, cursor: 'pointer', marginLeft: 8 }}>×</span></span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function GymTab({ me, setMe }) {
-  const routine = me.routine || []
-  const patch = (id, p) => setMe(m => ({ ...m, routine: m.routine.map(r => r.id === id ? { ...r, ...p } : r) }))
-  const add = () => setMe(m => ({ ...m, routine: [...m.routine, { id: uid('r'), day: 3, name: 'New day', items: '' }] }))
-  const del = id => setMe(m => ({ ...m, routine: m.routine.filter(r => r.id !== id) }))
-  const todayDow = new Date().getDay()
-  return (
-    <div>
-      <p style={{ fontFamily: F, fontSize: 12.5, color: C.muted, marginBottom: 14 }}>Your split. Edit anything — names, days, exercises. Today&rsquo;s session is highlighted. Plus the 6am pushups/situps you already run daily.</p>
-      {routine.slice().sort((a, b) => a.day - b.day).map(r => {
-        const isToday = r.day === todayDow
-        return (
-          <Panel key={r.id} style={{ padding: '15px 17px', marginBottom: 12, border: isToday ? `1px solid ${C.blue}` : `1px solid ${C.border}` }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-              <select value={r.day} onChange={e => patch(r.id, { day: Number(e.target.value) })} style={{ ...fldS, width: 130 }}>
-                {DAYS_FULL.map((d, i) => <option key={i} value={i}>{d}</option>)}
-              </select>
-              <input value={r.name} onChange={e => patch(r.id, { name: e.target.value })} style={{ ...fldS, flex: 1, minWidth: 140, fontFamily: SER, fontSize: 15, fontWeight: 600 }} />
-              {isToday && <span style={{ fontFamily: F, fontSize: 10, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 3, padding: '3px 10px' }}>TODAY</span>}
-              <button onClick={() => del(r.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 14, cursor: 'pointer' }}>×</button>
-            </div>
-            <textarea value={r.items} onChange={e => patch(r.id, { items: e.target.value })} rows={Math.max(3, (r.items || '').split('\n').length)} placeholder={'One exercise per line…'} style={{ ...fldS, lineHeight: 1.7 }} />
-          </Panel>
-        )
-      })}
-      <button onClick={add} style={obtnS(C.blue)}>+ Add a day</button>
-    </div>
-  )
-}
-
-function FuelTab({ me }) {
-  const kcal = 1950, protein = 155
-  const foods = [
-    ['Eggs', '~$4/dozen · 6g protein each'],
-    ['Chicken (thighs/breast)', 'the backbone — buy family packs'],
-    ['Ground turkey 93%', 'quick bowls, tacos, pasta'],
-    ['Canned tuna', 'cheapest protein per dollar there is'],
-    ['Greek yogurt (plain, big tub)', '~17g protein per serving'],
-    ['Cottage cheese', 'night-time protein'],
-    ['Rice + beans', 'cheap volume, real food'],
-    ['Frozen vegetables', 'no waste, always ready'],
-    ['Oats', 'breakfast base for pennies'],
-    ['Whey protein', 'only if the budget allows — food first'],
-  ]
-  return (
-    <div style={{ maxWidth: 680 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-        {[[kcal.toLocaleString(), 'Calories / day'], [protein + 'g', 'Protein / day'], ['$350', 'Food budget / mo']].map(([v, l]) => (
-          <Panel key={l} style={{ padding: '15px 16px' }}>
-            <div style={{ fontFamily: SER, fontSize: 'clamp(18px,3vw,24px)', fontWeight: 600, color: C.text, lineHeight: 1 }}>{v}</div>
-            <div style={{ fontFamily: F, fontSize: 10, color: C.muted, marginTop: 6 }}>{l}</div>
-          </Panel>
-        ))}
-      </div>
-      <Panel style={{ padding: '16px 18px', marginBottom: 16 }}>
-        <div style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, marginBottom: 8 }}>The cut, kept simple</div>
-        <div style={{ fontFamily: F, fontSize: 13, color: C.muted, lineHeight: 1.7 }}>
-          At 5&rsquo;5&rdquo; and {me.startWeight} lbs, roughly <b style={{ color: C.text }}>{kcal.toLocaleString()} calories</b> and <b style={{ color: C.text }}>{protein}g of protein</b> a day puts you on pace to lose about 1–1.5 lb a week without feeling starved. Protein first at every meal — it keeps muscle on you while the fat comes off, especially with your lifting.
-          <br /><br />The playbook: cook most meals (that&rsquo;s your $250 groceries), keep restaurants inside the $100 line, drink mostly water, and don&rsquo;t drink your calories. One honest rule beats ten fancy ones: <b style={{ color: C.text }}>if you didn&rsquo;t plan it, don&rsquo;t eat it.</b>
-        </div>
-      </Panel>
-      <div style={{ fontFamily: SER, fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Cheap protein that fits the budget</div>
-      {foods.map(([n, d]) => (
-        <div key={n} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontFamily: F, fontSize: 12.5, padding: '8px 2px', borderBottom: `1px solid ${C.border}` }}>
-          <span style={{ color: C.text, fontWeight: 600 }}>{n}</span><span style={{ color: C.muted, textAlign: 'right' }}>{d}</span>
-        </div>
-      ))}
-      <div style={{ fontFamily: F, fontSize: 10.5, color: C.dim, marginTop: 12 }}>Targets are sensible guidance, not medical advice — adjust to how your body responds, and loop in a professional for anything health-related.</div>
-    </div>
-  )
-}
-
-function CareerTab({ me, setMe }) {
-  const c = me.career
-  const [skill, setSkill] = useState('')
-  const setC = p => setMe(m => ({ ...m, career: { ...m.career, ...p } }))
-  const addSkill = () => { const s = skill.trim(); if (!s) return; setC({ skills: [...c.skills, s] }); setSkill('') }
-  const delSkill = s => setC({ skills: c.skills.filter(x => x !== s) })
-  const addPast = () => { const t = ask('Job title?'); if (!t) return; const co = ask('Company?') || ''; const y = ask('Years (e.g. 2022–2024)?') || ''; setC({ past: [...(c.past || []), { id: uid('j'), title: t, company: co, years: y }] }) }
-  const delPast = id => setC({ past: (c.past || []).filter(j => j.id !== id) })
-  return (
-    <div style={{ maxWidth: 680 }}>
-      <Panel style={{ padding: '16px 18px', marginBottom: 14, borderLeft: `3px solid ${C.blue}` }}>
-        <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.14em', color: C.dim, textTransform: 'uppercase', marginBottom: 6 }}>Now</div>
-        <div style={{ fontFamily: SER, fontSize: 18, fontWeight: 600, color: C.text }}>{c.current.title} · {c.current.company}</div>
-        <div style={{ fontFamily: F, fontSize: 12.5, color: C.muted, marginTop: 4 }}>{c.current.notes}</div>
-      </Panel>
-      <Panel style={{ padding: '16px 18px', marginBottom: 14, borderLeft: `3px solid ${C.amber}` }}>
-        <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.14em', color: C.dim, textTransform: 'uppercase', marginBottom: 6 }}>The destination</div>
-        <div style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, color: C.text }}>{c.target}</div>
-        <div style={{ fontFamily: F, fontSize: 12, color: C.muted, marginTop: 4 }}>Every skill below is a brick in that road.</div>
-      </Panel>
-      <div style={{ fontFamily: SER, fontSize: 14, fontWeight: 600, margin: '18px 0 10px' }}>Skills I&rsquo;m stacking</div>
-      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>
-        {c.skills.map(s => <span key={s} style={{ fontFamily: F, fontSize: 12, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 3, padding: '5px 12px', color: C.text }}>{s} <span onClick={() => delSkill(s)} style={{ color: C.dim, cursor: 'pointer' }}>×</span></span>)}
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        <input value={skill} onChange={e => setSkill(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addSkill() }} placeholder="+ new skill" style={{ ...fldS, flex: 1 }} />
-        <button onClick={addSkill} style={obtnS(C.blue)}>Add</button>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-        <span style={{ fontFamily: SER, fontSize: 14, fontWeight: 600 }}>Where I&rsquo;ve been</span>
-        <button onClick={addPast} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 12, cursor: 'pointer' }}>+ add past job</button>
-      </div>
-      {(c.past || []).length === 0 ? <div style={{ fontFamily: F, fontSize: 12, color: C.dim }}>Add your past roles to build the timeline.</div> : (c.past || []).map(j => (
-        <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 13, padding: '9px 2px', borderBottom: `1px solid ${C.border}` }}>
-          <span style={{ color: C.text }}>{j.title}{j.company ? ' · ' + j.company : ''}</span>
-          <span style={{ color: C.muted }}>{j.years} <span onClick={() => delPast(j.id)} style={{ color: C.dim, cursor: 'pointer', marginLeft: 6 }}>×</span></span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function SkillsTab({ me, setMe }) {
-  const [mins, setMins] = useState('')
-  const langs = me.languages || []
-  const setLevel = (id, level) => setMe(m => ({ ...m, languages: m.languages.map(l => l.id === id ? { ...l, level } : l) }))
-  const sessions = (me.guitar && me.guitar.sessions) || []
-  const logGuitar = () => { const v = Number(mins) || 20; setMe(m => ({ ...m, guitar: { sessions: [{ id: uid('gt'), date: todayKey(), minutes: v }, ...((m.guitar && m.guitar.sessions) || [])].slice(0, 200) } })); setMins('') }
-  const thisWeek = sessions.filter(s => (Date.now() - new Date(s.date).getTime()) < 7 * 86400000)
-  const totalMins = sessions.reduce((a, s) => a + s.minutes, 0)
-  return (
-    <div style={{ maxWidth: 680 }}>
-      <div style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Languages — the UN currency</div>
-      <p style={{ fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 14 }}>Tap the level you&rsquo;re at. Spanish to B2 and French to B1 make you a real international candidate.</p>
-      {langs.map(l => (
-        <Panel key={l.id} style={{ padding: '15px 17px', marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontFamily: SER, fontSize: 16, fontWeight: 600 }}>{l.flag} {l.name}</span>
-            <span style={{ fontFamily: F, fontSize: 11, color: C.muted }}>target: {LEVELS[l.target]}</span>
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {LEVELS.map((lv, i) => {
-              const reached = i <= l.level && i > 0
-              const isTarget = i === l.target
-              return (
-                <button key={lv} onClick={() => setLevel(l.id, i)} style={{ fontFamily: F, fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${reached ? C.green : isTarget ? C.amber : C.border}`, background: reached ? 'rgba(147,167,119,0.15)' : 'transparent', color: reached ? C.green : isTarget ? C.amber : C.muted }}>{lv}</button>
-              )
-            })}
-          </div>
-        </Panel>
-      ))}
-      <div style={{ fontFamily: SER, fontSize: 15, fontWeight: 600, margin: '22px 0 4px' }}>Guitar</div>
-      <p style={{ fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 12 }}>{thisWeek.length} session{thisWeek.length !== 1 ? 's' : ''} this week · {Math.round(totalMins / 60)}h logged all-time</p>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <input type="number" value={mins} onChange={e => setMins(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') logGuitar() }} placeholder="minutes (default 20)" style={{ ...fldS, flex: 1 }} />
-        <button onClick={logGuitar} style={obtnS(C.amber)}>Log practice</button>
-      </div>
-      {sessions.slice(0, 6).map(s => (
-        <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12.5, color: C.muted, padding: '6px 2px', borderBottom: `1px solid ${C.border}` }}>
-          <span>{s.date}</span><span style={{ color: C.text }}>{s.minutes} min</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function WeekTab({ me, applyWeek, ping }) {
-  const tmpl = buildWeekTemplate(me)
-  const byDay = DAYS_FULL.map((d, i) => ({ day: d, items: tmpl.filter(t => t.dayOfWeek === i) }))
-  return (
-    <div style={{ maxWidth: 720 }}>
-      <Panel style={{ padding: '18px 20px', marginBottom: 18, borderLeft: `3px solid ${C.amber}` }}>
-        <div style={{ fontFamily: SER, fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Your weekly rhythm</div>
-        <div style={{ fontFamily: F, fontSize: 12.5, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
-          Work owns Mon–Fri days, so everything else lives in the edges: mornings are already yours (6am pushups), gym takes the after-work slot, languages and guitar rotate through evenings, Substack gets Saturday morning when your brain is fresh, and Sunday is Flight Pathways plus a weekly review. One tap loads all of it into your calendar — then sync to your phone so it alarms you.
-        </div>
-        <button onClick={() => { const n = applyWeek(); ping(n > 0 ? `Added ${n} blocks to your calendar →` : 'Already loaded — check your calendar') }}
-          style={{ fontFamily: F, fontSize: 13, fontWeight: 600, padding: '11px 20px', borderRadius: 4, cursor: 'pointer', border: 'none', background: C.amber, color: '#0b0b0c' }}>Load my week into the calendar →</button>
-      </Panel>
-      {byDay.map(({ day, items }) => items.length > 0 && (
-        <div key={day} style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: SER, fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{day}</div>
-          {items.sort((a, b) => a.startH - b.startH).map((t, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: '9px 13px', marginBottom: 6 }}>
-              <div style={{ width: 4, height: 22, borderRadius: 2, background: getEvColor(t.color).border }} />
-              <span style={{ flex: 1, fontFamily: F, fontSize: 13, color: C.text }}>{t.title}</span>
-              <span style={{ fontFamily: F, fontSize: 11, color: C.muted }}>{t12(t.startH, t.startM)}–{t12(t.endH, t.endM)}</span>
-            </div>
-          ))}
-        </div>
-      ))}
-      <div style={{ fontFamily: F, fontSize: 11, color: C.dim }}>Change your gym days in the Gym tab and this plan follows. Loading skips anything already on your calendar, so it&rsquo;s safe to tap again.</div>
-    </div>
-  )
-}
-
-// ════════════════════════════════════════════════════════════════════════════════
-// GOALS — the unlock chain + parallel tracks + Substack + Board + Wins
-// ════════════════════════════════════════════════════════════════════════════════
-function GoalsView({ goals, setGoals, vision, setVision, finance, me }) {
-  const [tab, setTab] = useState('goals')
-  const [motiv, setMotiv] = useState(false)
-  const setV = patch => setVision(v => ({ ...v, ...patch }))
-  const images = (vision.items || []).filter(i => i.kind === 'image')
-  return (
-    <div style={{ animation: 'fadeUp 0.3s ease', paddingBottom: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
-        <div>
-          <h1 style={{ fontFamily: SER, fontSize: 'clamp(24px,4vw,32px)', fontWeight: 600 }}>Goals</h1>
-          <p style={{ fontFamily: F, fontSize: 12, color: C.muted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.02em' }}>The life you&rsquo;re building. In order.</p>
-        </div>
-        {images.length > 0 && tab === 'board' && <button onClick={() => setMotiv(true)} style={obtnS(C.amber)}>Motivation mode</button>}
-      </div>
-      <div style={{ display: 'flex', gap: 6, margin: '16px 0 18px', borderBottom: `1px solid ${C.border}` }}>
-        {[['goals', 'The Chain'], ['board', 'Board'], ['wins', 'Wins']].map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} style={{ fontFamily: F, fontSize: 13, fontWeight: tab === id ? 600 : 500, padding: '9px 14px', borderRadius: 4, cursor: 'pointer', border: 'none', background: tab === id ? C.blueDim : 'transparent', color: tab === id ? C.blue : C.muted }}>{label}</button>
-        ))}
-      </div>
-      {tab === 'goals' && <ChainTab goals={goals} setGoals={setGoals} finance={finance} me={me} />}
-      {tab === 'board' && <BoardTab vision={vision} setV={setV} />}
-      {tab === 'wins' && <WinsTab vision={vision} setV={setV} />}
-      {motiv && <MotivationMode images={images} onClose={() => setMotiv(false)} />}
-    </div>
-  )
-}
-
-function ChainTab({ goals, setGoals, finance, me }) {
-  const [postTitle, setPostTitle] = useState('')
-  const toggleMs = (listKey, gid, mid) => setGoals(g => ({ ...g, [listKey]: g[listKey].map(goal => goal.id === gid ? { ...goal, ms: goal.ms.map(m => m.id === mid ? { ...m, done: !m.done } : m) } : goal) }))
-  const pct = goal => { const t = goal.ms.length; const d = goal.ms.filter(m => m.done).length; return t ? Math.round(d / t * 100) : 0 }
-  const debts = finance.debts || []
-  const totalBalance = debts.reduce((a, d) => a + Number(d.balance || 0), 0)
-  const sub = goals.substack || { posts: 0, subs: 0, log: [] }
-  const setSub = p => setGoals(g => ({ ...g, substack: { ...(g.substack || {}), ...p } }))
-  const logPost = () => { const t = postTitle.trim() || 'Untitled post'; setSub({ posts: (sub.posts || 0) + 1, log: [{ id: uid('sp'), date: todayKey(), title: t }, ...(sub.log || [])].slice(0, 100) }); setPostTitle('') }
-  const editSubs = () => { const v = ask('Current subscriber count?'); if (v != null && v !== '') setSub({ subs: Number(v) || 0 }) }
-  const es = (me.languages || []).find(l => l.id === 'es')
-
-  const goalCard = (goal, idx, listKey, extra) => {
-    const p = pct(goal)
-    const complete = p === 100
-    return (
-      <Panel key={goal.id} style={{ padding: '17px 19px', marginBottom: 14, borderLeft: `3px solid ${complete ? C.green : idx === 0 && listKey === 'chain' ? C.amber : C.border2}` }}>
-        <div style={{ display: 'flex', gap: 13, alignItems: 'flex-start' }}>
-          {listKey === 'chain' && <div style={{ fontFamily: SER, fontSize: 26, fontWeight: 600, color: complete ? C.green : C.blue, opacity: 0.6, lineHeight: 1, minWidth: 24 }}>{idx + 1}</div>}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ fontFamily: SER, fontSize: 18, fontWeight: 600, color: C.text }}>{goal.title} {complete && '✓'}</div>
-              <span style={{ fontFamily: F, fontSize: 12, color: complete ? C.green : C.muted, fontWeight: 600 }}>{p}%</span>
-            </div>
-            <div style={{ fontFamily: F, fontSize: 12, color: C.muted, margin: '3px 0 10px' }}>{goal.sub}</div>
-            <div style={{ height: 6, background: C.surface2, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}><div style={{ height: '100%', width: p + '%', background: complete ? C.green : C.blue, borderRadius: 4, transition: 'width 0.3s' }} /></div>
-            {extra}
-            {goal.ms.map(m => (
-              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 0' }}>
-                <div onClick={() => toggleMs(listKey, goal.id, m.id)} style={{ width: 17, height: 17, borderRadius: 5, border: `1.5px solid ${m.done ? C.green : C.border2}`, background: m.done ? C.green : 'transparent', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0b0b0c', fontSize: 10 }}>{m.done ? '✓' : ''}</div>
-                <span style={{ fontFamily: F, fontSize: 13, color: m.done ? C.muted : C.text, textDecoration: m.done ? 'line-through' : 'none' }}>{m.text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Panel>
-    )
-  }
-
-  return (
-    <div style={{ maxWidth: 720 }}>
-      <p style={{ fontFamily: F, fontSize: 13, color: C.muted, marginBottom: 16, lineHeight: 1.55 }}>No fake deadlines — your goals unlock in <b style={{ color: C.text }}>sequence</b>. Money first, because every dollar of interest you stop paying becomes fuel for everything below it.</p>
-      {goals.chain.map((g, i) => goalCard(g, i, 'chain',
-        g.id === 'g_fin' ? <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim, marginBottom: 10 }}>Live from Money: <b style={{ color: totalBalance > 0 ? C.red : C.green }}>{money(totalBalance, false)}</b> still on the books.</div>
-          : g.id === 'g_un' && es ? <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim, marginBottom: 10 }}>Live from Skills: Spanish is at <b style={{ color: C.amber }}>{LEVELS[es.level]}</b> — B2 is the bar.</div> : null))}
-
-      <div style={{ fontFamily: SER, fontSize: 16, fontWeight: 600, margin: '24px 0 12px' }}>Running alongside</div>
-
-      <Panel style={{ padding: '17px 19px', marginBottom: 14, borderLeft: `3px solid ${C.amber}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-          <div style={{ fontFamily: SER, fontSize: 18, fontWeight: 600 }}>Substack</div>
-          <span onClick={editSubs} style={{ fontFamily: F, fontSize: 12, color: C.muted, cursor: 'pointer' }}>{sub.subs || 0} subscribers ✎</span>
-        </div>
-        <div style={{ fontFamily: F, fontSize: 12, color: C.muted, marginBottom: 12 }}>&ldquo;Big on Substack&rdquo; is just &ldquo;published consistently for a long time.&rdquo; The plan gives you Saturday mornings. Protect them.</div>
-        <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-          <div style={{ flex: 1, textAlign: 'center', background: C.surface2, borderRadius: 4, padding: '10px 6px' }}>
-            <div style={{ fontFamily: SER, fontSize: 24, fontWeight: 600, color: C.amber }}>{sub.posts || 0}</div>
-            <div style={{ fontFamily: F, fontSize: 10, color: C.muted }}>posts published</div>
-          </div>
-          <div style={{ flex: 1, textAlign: 'center', background: C.surface2, borderRadius: 4, padding: '10px 6px' }}>
-            <div style={{ fontFamily: SER, fontSize: 24, fontWeight: 600, color: C.text }}>{(sub.log || []).filter(l => (Date.now() - new Date(l.date).getTime()) < 30 * 86400000).length}</div>
-            <div style={{ fontFamily: F, fontSize: 10, color: C.muted }}>in the last 30 days</div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input value={postTitle} onChange={e => setPostTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') logPost() }} placeholder="post title…" style={{ ...fldS, flex: 1 }} />
-          <button onClick={logPost} style={obtnS(C.amber)}>+ Published one</button>
-        </div>
-        {(sub.log || []).slice(0, 4).map(l => <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 12, color: C.muted, padding: '6px 0', borderBottom: `1px solid ${C.border}` }}><span>{l.title}</span><span style={{ color: C.dim }}>{l.date}</span></div>)}
-      </Panel>
-
-      {goals.parallel.map((g, i) => goalCard(g, i, 'parallel', null))}
-    </div>
-  )
 }
