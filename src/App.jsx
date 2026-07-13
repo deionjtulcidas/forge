@@ -139,6 +139,13 @@ const EVENT_COLORS = [
   { id: 'amber', bg: 'rgba(163,132,82,0.92)', border: '#a38452' },
   { id: 'teal', bg: 'rgba(88,138,127,0.9)', border: '#588a7f' },
   { id: 'pink', bg: 'rgba(168,110,134,0.9)', border: '#a86e86' },
+  { id: 'indigo', bg: 'rgba(104,102,168,0.9)', border: '#6866a8' },
+  { id: 'olive', bg: 'rgba(134,138,86,0.9)', border: '#868a56' },
+  { id: 'rust', bg: 'rgba(170,104,70,0.92)', border: '#aa6846' },
+  { id: 'cyan', bg: 'rgba(80,142,158,0.9)', border: '#508e9e' },
+  { id: 'slate', bg: 'rgba(112,120,132,0.9)', border: '#707884' },
+  { id: 'rose', bg: 'rgba(178,96,112,0.92)', border: '#b26070' },
+  { id: 'gold', bg: 'rgba(176,150,80,0.92)', border: '#b09650' },
 ]
 const getEvColor = id => EVENT_COLORS.find(c => c.id === id) || EVENT_COLORS[0]
 const money = (n, cents = true) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 })
@@ -176,6 +183,9 @@ const CSS = `
   *{box-sizing:border-box}
   .app-root{min-height:100vh;background:var(--bg);color:var(--text);font-family:${F}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes zoomEnter{from{opacity:0;transform:scale(0.90)}to{opacity:1;transform:scale(1)}}
+  @keyframes hubIn{from{opacity:0;transform:scale(1.06)}to{opacity:1;transform:scale(1)}}
+  @keyframes tilePop{from{opacity:0;transform:scale(0.8)}to{opacity:1;transform:scale(1)}}
   @keyframes modalIn{from{opacity:0;transform:scale(0.97)}to{opacity:1;transform:scale(1)}}
   @keyframes dotPulse{0%,100%{opacity:0.4}50%{opacity:1}}
   @keyframes slideIn{from{opacity:0}to{opacity:1}}
@@ -325,6 +335,29 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
   }
 
   const HOUR_H = 46, START_H = 6
+  const gridRef = useRef()
+  const beginDrag = (e, ev) => {
+    e.stopPropagation()
+    const sx = e.clientX, sy = e.clientY
+    const copy = e.altKey || e.metaKey
+    let moved = false
+    const dur = (ev.endH ?? ev.startH + 1) - ev.startH + (((ev.endM || 0) - (ev.startM || 0)) / 60)
+    const onMove = mv => { if (Math.abs(mv.clientX - sx) > 4 || Math.abs(mv.clientY - sy) > 4) moved = true }
+    const onUp = mv => {
+      window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp)
+      if (!moved) { setModal({ type: 'edit', event: ev }); return }
+      const g = gridRef.current.getBoundingClientRect()
+      const colW = (g.width - 48) / 7
+      const dayIdx = Math.max(0, Math.min(6, Math.floor((mv.clientX - g.left - 48) / colW)))
+      const hour = Math.max(0, Math.min(23, START_H + Math.round((mv.clientY - g.top) / HOUR_H)))
+      let newEndH = Math.floor(hour + dur); const newEndM = Math.round((dur % 1) * 60)
+      if (newEndH > 23) { newEndH = 23 }
+      const base = { ...ev, dayOfWeek: weekDates[dayIdx].getDay(), startH: hour, startM: 0, endH: newEndH, endM: newEndM }
+      if (copy) onEventsChange([...events, { ...base, id: uid('e') }])
+      else onEventsChange(events.map(x => x.id === ev.id ? base : x))
+    }
+    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
+  }
   return (
     <div style={{ animation: 'fadeUp 0.3s ease' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
@@ -340,6 +373,7 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
           <button onClick={() => setModal({ type: 'new', slot: { dow: new Date().getDay(), hour: 9 } })} style={{ fontFamily: F, fontSize: 11, fontWeight: 600, padding: '9px 16px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${C.blue}`, background: C.blueDim, color: C.blue }}>+ New block</button>
         </div>
       </div>
+      <div style={{ fontFamily: F, fontSize: 11, color: C.dim, marginBottom: 10 }}>Drag a block to move it · hold <b style={{ color: C.muted }}>Option/Alt</b> (or ⌘) while dragging to copy it.</div>
       <Panel style={{ overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '48px repeat(7,1fr)', borderBottom: `1px solid ${C.border}` }}>
           <div />
@@ -354,7 +388,7 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
           })}
         </div>
         <div style={{ position: 'relative', maxHeight: '64vh', overflowY: 'auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '48px repeat(7,1fr)' }}>
+          <div ref={gridRef} style={{ display: 'grid', gridTemplateColumns: '48px repeat(7,1fr)' }}>
             <div>
               {HOURS.slice(START_H).map(h => <div key={h} style={{ height: HOUR_H, fontFamily: F, fontSize: 9, color: C.dim, textAlign: 'right', paddingRight: 6, paddingTop: 2 }}>{t12(h, 0).replace(':00', '')}</div>)}
             </div>
@@ -372,8 +406,8 @@ function WeeklyCalendar({ weekOffset, setWeekOffset, events, onEventsChange, isM
                   const ec = getEvColor(ev.color)
                   if (top < 0) return null
                   return (
-                    <div key={ev.id} onClick={e => { e.stopPropagation(); setModal({ type: 'edit', event: ev }) }}
-                      style={{ position: 'absolute', top, left: 2, right: 2, height: h, background: ec.bg, borderLeft: `3px solid ${ec.border}`, borderRadius: 3, padding: '3px 6px', cursor: 'pointer', overflow: 'hidden', zIndex: 2 }}>
+                    <div key={ev.id} onMouseDown={e => beginDrag(e, ev)} onClick={e => e.stopPropagation()}
+                      style={{ position: 'absolute', top, left: 2, right: 2, height: h, background: ec.bg, borderLeft: `3px solid ${ec.border}`, borderRadius: 3, padding: '3px 6px', cursor: 'grab', overflow: 'hidden', zIndex: 2, userSelect: 'none' }}>
                       <div style={{ fontFamily: F, fontSize: 10.5, fontWeight: 600, color: '#fff', lineHeight: 1.15 }}>{ev.title}</div>
                       <div style={{ fontFamily: F, fontSize: 9, color: 'rgba(255,255,255,0.8)' }}>{t12(ev.startH, ev.startM)}</div>
                     </div>
