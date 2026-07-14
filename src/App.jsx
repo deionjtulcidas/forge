@@ -186,6 +186,11 @@ const CSS = `
   @keyframes zoomEnter{from{opacity:0;transform:scale(0.90)}to{opacity:1;transform:scale(1)}}
   @keyframes hubIn{from{opacity:0;transform:scale(1.06)}to{opacity:1;transform:scale(1)}}
   @keyframes tilePop{from{opacity:0;transform:scale(0.8)}to{opacity:1;transform:scale(1)}}
+  .hubtile{transition:transform .18s cubic-bezier(.2,.8,.2,1), border-color .18s ease, box-shadow .18s ease; cursor:pointer; text-align:left}
+  .hubtile:hover{transform:translateY(-4px); border-color:var(--border2); box-shadow:0 16px 40px rgba(0,0,0,0.4)}
+  .hubtile:active{transform:translateY(-1px) scale(0.99)}
+  .mecard{position:relative}
+  .mecard::before{content:'';position:absolute;inset:-1px;border-radius:20px;padding:1px;background:linear-gradient(160deg,var(--holo),transparent 45%,transparent 60%,var(--holo));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:0.5;pointer-events:none}
   @keyframes modalIn{from{opacity:0;transform:scale(0.97)}to{opacity:1;transform:scale(1)}}
   @keyframes dotPulse{0%,100%{opacity:0.4}50%{opacity:1}}
   @keyframes slideIn{from{opacity:0}to{opacity:1}}
@@ -1364,19 +1369,19 @@ function SkillsTab({ me, setMe }) {
         return (
           <Panel key={h.id} style={{ padding: '15px 17px', marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-              <span style={{ fontFamily: F, fontSize: 15, fontWeight: 700, color: C.text }}>{h.name}</span>
+              <input value={h.name} onChange={e => patchHobby(h.id, x => ({ ...x, name: e.target.value }))} style={{ background: 'transparent', border: 'none', fontFamily: F, fontSize: 15, fontWeight: 700, color: C.text, outline: 'none', flex: 1, minWidth: 120 }} />
               <span style={{ fontFamily: F, fontSize: 11, color: C.holo, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{levelName(h.xp)} · {Math.round(h.xp)}/100</span>
             </div>
-            <div style={{ height: 10, background: C.surface2, borderRadius: 3, overflow: 'hidden', marginBottom: 10, position: 'relative' }}>
-              <div style={{ height: '100%', width: h.xp + '%', background: `linear-gradient(90deg, var(--holo), ${C.blue})`, borderRadius: 3, transition: 'width 0.4s' }} />
+            <div style={{ height: 10, background: C.surface2, borderRadius: 3, overflow: 'hidden', marginBottom: 6 }}>
+              <div style={{ height: '100%', width: h.xp + '%', background: `linear-gradient(90deg, var(--holo), ${C.blue})`, borderRadius: 3, transition: 'width 0.2s' }} />
             </div>
+            <input type="range" min={0} max={100} value={Math.round(h.xp)} onChange={e => patchHobby(h.id, x => ({ ...x, xp: Number(e.target.value) }))} style={{ width: '100%', accentColor: C.holo, marginBottom: 8, cursor: 'pointer' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontFamily: F, fontSize: 11, color: C.dim }}>{week.length} session{week.length !== 1 ? 's' : ''} this week · {totalH}h all-time</span>
+              <span style={{ fontFamily: F, fontSize: 11, color: C.dim }}>{week.length} session{week.length !== 1 ? 's' : ''} this week · {totalH}h all-time · drag to set, or log time:</span>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button onClick={() => logPractice(h.id, 15)} style={obtn(C.muted)}>+15m</button>
                 <button onClick={() => logPractice(h.id, 30)} style={obtn(C.holo)}>+30m</button>
                 <button onClick={() => logPractice(h.id, 60)} style={obtn(C.holo)}>+1h</button>
-                <button onClick={() => setXp(h.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 11, cursor: 'pointer' }}>set</button>
                 <button onClick={() => delHobby(h.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 12, cursor: 'pointer' }}>×</button>
               </div>
             </div>
@@ -1556,10 +1561,96 @@ function useIsMobile() {
 }
 const NAV = [['calendar', 'Calendar'], ['today', 'Today'], ['me', 'Me'], ['money', 'Money'], ['goals', 'Goals'], ['avoiding', 'Avoiding'], ['journal', 'Journal']]
 
+// ════════════════════════════════════════════════════════════════════════════════
+// HUB — Me centerpiece, sections orbiting
+// ════════════════════════════════════════════════════════════════════════════════
+function HubView({ go, me, data, events, finance, goals, avoiding, vision, streak, journalDue, isMobile }) {
+  const todayStr = todayKey()
+  const dd = data[todayStr] || { done: {}, personal: [] }
+  const weighIns = (me.weighIns || []).slice().sort((a, b) => a.date.localeCompare(b.date))
+  const curW = weighIns.length ? weighIns[weighIns.length - 1].lbs : me.startWeight
+  const today = new Date()
+  const scheduled = events.filter(ev => shouldShow(ev, today) && !ev.allDay).sort((a, b) => (a.startH + a.startM / 60) - (b.startH + b.startM / 60))
+  const doneToday = scheduled.filter(ev => dd.done?.[ev.id]).length + (dd.personal || []).filter(p => p.done).length
+  const totalToday = scheduled.length + (dd.personal || []).length
+  const nowH = today.getHours() + today.getMinutes() / 60
+  const nextBlock = scheduled.find(ev => ev.startH + (ev.startM || 0) / 60 >= nowH)
+  const debts = finance.debts || []
+  const debtLeft = debts.reduce((a, d) => a + Number(d.balance || 0), 0)
+  const startDebt = debts.reduce((a, d) => a + Number(d.startBalance || d.balance || 0), 0)
+  const debtPct = startDebt > 0 ? Math.round((startDebt - debtLeft) / startDebt * 100) : 0
+  const chainPct = (() => { const gs = goals.chain || []; if (!gs.length) return 0; const per = gs.map(g => { const t = g.ms.length; return t ? g.ms.filter(m => m.done).length / t : 0 }); return Math.round(per.reduce((a, b) => a + b, 0) / gs.length * 100) })()
+  const nextMs = (() => { for (const g of (goals.chain || [])) { const m = g.ms.find(x => !x.done); if (m) return g.title + ' — ' + m.text } return 'All milestones cleared' })()
+  const avoidCount = (avoiding || []).filter(a => !a.done).length
+  const journalEntries = (vision.journal || []).length
+
+  const tiles = [
+    { id: 'calendar', area: 'calendar', label: 'Schedule', accent: C.blue, stat: nextBlock ? 'Next · ' + nextBlock.title : (scheduled.length ? scheduled.length + ' blocks today' : 'Open week'), sub: nextBlock ? t12(nextBlock.startH, nextBlock.startM) : 'plan your week' },
+    { id: 'today', area: 'today', label: 'Today', accent: C.green, stat: totalToday ? doneToday + ' / ' + totalToday + ' done' : 'Nothing yet', sub: 'the day in front of you', prog: totalToday ? doneToday / totalToday : 0 },
+    { id: 'money', area: 'money', label: 'Money', accent: C.red, stat: money(debtLeft, false) + ' left', sub: debtPct + '% to debt-free', prog: debtPct / 100 },
+    { id: 'goals', area: 'goals', label: 'Goals', accent: C.amber, stat: chainPct + '% up the chain', sub: nextMs, prog: chainPct / 100 },
+    { id: 'avoiding', area: 'avoiding', label: 'Avoiding', accent: C.holo, stat: avoidCount ? avoidCount + ' on the table' : 'Nothing dodged', sub: 'face what nags you' },
+    { id: 'journal', area: 'journal', label: 'Journal', accent: C.muted, stat: journalDue ? 'Due tonight' : journalEntries + ' entries', sub: 'close the day honest', badge: journalDue },
+  ]
+
+  const Tile = t => (
+    <button key={t.id} className="hubtile" onClick={() => go(t.id)}
+      style={{ gridArea: isMobile ? undefined : t.area, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--card-shadow)', display: 'flex', flexDirection: 'column', gap: 6, minHeight: isMobile ? 110 : 132, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: t.accent, opacity: 0.85 }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontFamily: F, fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.muted }}>{t.label}</span>
+        <span style={{ color: t.accent, fontSize: 15, opacity: 0.9 }}>→</span>
+      </div>
+      <div style={{ fontFamily: F, fontSize: 'clamp(17px,2.2vw,21px)', fontWeight: 800, color: C.text, lineHeight: 1.1, letterSpacing: '-0.01em' }}>{t.stat}</div>
+      <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim, marginTop: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sub}</div>
+      {t.prog != null && <div style={{ height: 4, background: C.surface2, borderRadius: 3, overflow: 'hidden' }}><div style={{ height: '100%', width: Math.round(t.prog * 100) + '%', background: t.accent, borderRadius: 3 }} /></div>}
+      {t.badge && <span style={{ position: 'absolute', top: 16, right: 34, width: 7, height: 7, borderRadius: '50%', background: C.red, animation: 'dotPulse 1.6s ease-in-out infinite' }} />}
+    </button>
+  )
+
+  const meCard = (
+    <button className="hubtile mecard" onClick={() => go('me')} style={{ gridArea: isMobile ? undefined : 'me', background: 'linear-gradient(180deg, var(--surface2), var(--surface))', border: `1px solid ${C.border2}`, borderRadius: 20, padding: isMobile ? '22px 20px' : '26px 22px', boxShadow: '0 20px 60px rgba(0,0,0,0.45)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 70% 50% at 50% 40%, var(--holoDim), transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ fontFamily: F, fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase', color: C.holo }}>Me</div>
+      <div style={{ width: isMobile ? 120 : 150, position: 'relative', zIndex: 1 }}><HoloFigure current={curW} start={me.startWeight} goal={me.goalWeight} /></div>
+      <div style={{ fontFamily: F, fontSize: 22, fontWeight: 800, color: C.text, letterSpacing: '-0.01em' }}>{curW}<span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}> lb → {me.goalWeight}</span></div>
+      <div style={{ display: 'flex', gap: 18, marginTop: 4 }}>
+        <div style={{ textAlign: 'center' }}><div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: C.amber }}>{streak}</div><div style={{ fontFamily: F, fontSize: 8.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim }}>streak</div></div>
+        <div style={{ textAlign: 'center' }}><div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: C.holo }}>{Math.max(0, me.startWeight - curW).toFixed(0)}</div><div style={{ fontFamily: F, fontSize: 8.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim }}>lb lost</div></div>
+        <div style={{ textAlign: 'center' }}><div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: C.green }}>{chainPct}%</div><div style={{ fontFamily: F, fontSize: 8.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim }}>goals</div></div>
+      </div>
+      <div style={{ fontFamily: F, fontSize: 11, color: C.muted, marginTop: 6, zIndex: 1 }}>Open my profile →</div>
+    </button>
+  )
+
+  return (
+    <div style={{ animation: 'hubIn 0.5s cubic-bezier(.2,.8,.2,1)', maxWidth: 1000, margin: '0 auto' }}>
+      <div style={{ textAlign: 'center', marginBottom: isMobile ? 20 : 30 }}>
+        <div style={{ fontFamily: F, fontSize: 12, color: C.muted }}>{today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+        <div style={{ fontFamily: F, fontSize: 'clamp(22px,4vw,30px)', fontWeight: 800, letterSpacing: '-0.02em', marginTop: 4 }}>{greeting()}{profileFirst(me)}.</div>
+      </div>
+      {isMobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {meCard}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{tiles.map(Tile)}</div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 16, gridTemplateColumns: '1fr 1.25fr 1fr', gridTemplateAreas: `"calendar me money" "goals me avoiding" "today me journal"` }}>
+          {Tile(tiles[0])/*calendar*/}{meCard}{Tile(tiles[2])/*money*/}
+          {Tile(tiles[3])/*goals*/}{Tile(tiles[4])/*avoiding*/}
+          {Tile(tiles[1])/*today*/}{Tile(tiles[5])/*journal*/}
+        </div>
+      )}
+    </div>
+  )
+}
+function greeting() { const h = new Date().getHours(); return h < 5 ? 'Still up' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening' }
+function profileFirst(me) { return '' }
+
 function ForgeApp({ profileName, onLock }) {
   const [booting, setBooting] = useState(true)
   const [ready, setReady] = useState(false)
-  const [view, setView] = useState('today')
+  const [view, setView] = useState('hub')
   const [weekOffset, setWeekOffset] = useState(0)
   const [theme, setThemeState] = useState(loadTheme)
   const [events, setEvents] = useState(loadEvents)
@@ -1604,6 +1695,8 @@ function ForgeApp({ profileName, onLock }) {
   if (booting) return <><style>{CSS}</style><BootScreen /></>
 
   const smallBtn = { background: 'none', border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, fontFamily: F, fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0 12px', height: 32, cursor: 'pointer' }
+  const isHub = view === 'hub'
+  const titleOf = { calendar: 'Schedule', today: 'Today', me: 'Me', money: 'Money', goals: 'Goals', avoiding: 'Avoiding', journal: 'Journal' }[view] || ''
 
   return (
     <>
@@ -1611,64 +1704,45 @@ function ForgeApp({ profileName, onLock }) {
       <div className="app-root" data-theme={theme}>
         <Background />
 
-        {/* desktop top nav */}
-        <header className="topnav only-desktop">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginRight: 14 }}>
-            <Ember size={20} color={C.blue} />
-            <span style={{ fontFamily: F, fontSize: 14, fontWeight: 800, letterSpacing: '0.18em', color: C.text }}>FORGE</span>
-            {profileName && <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>/ {profileName}</span>}
-          </div>
-          <nav style={{ display: 'flex', alignItems: 'center' }}>
-            {NAV.map(([id, label]) => (
-              <button key={id} className={'navbtn' + (view === id ? ' active' : '')} onClick={() => setView(id)} style={{ position: 'relative' }}>
-                {label}
-                {id === 'journal' && journalDue && <span style={{ position: 'absolute', top: 14, right: 4, width: 6, height: 6, borderRadius: '50%', background: C.red, animation: 'dotPulse 1.6s ease-in-out infinite' }} />}
-              </button>
-            ))}
-          </nav>
+        {/* minimal bar — no section tabs. Left = Forge / back-to-home. Right = streak, theme, lock. */}
+        <header style={{ position: 'sticky', top: 0, zIndex: 40, display: 'flex', alignItems: 'center', gap: 10, height: 54, padding: isMobile ? '0 16px' : '0 26px', background: 'var(--surface)', borderBottom: `1px solid ${C.border}`, backdropFilter: 'blur(14px)' }}>
+          {isHub ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <Ember size={20} color={C.blue} />
+              <span style={{ fontFamily: F, fontSize: 14, fontWeight: 800, letterSpacing: '0.18em', color: C.text }}>FORGE</span>
+              {profileName && <span style={{ fontFamily: F, fontSize: 10.5, color: C.dim }}>/ {profileName}</span>}
+            </div>
+          ) : (
+            <button onClick={() => setView('hub')} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              <span style={{ fontFamily: F, fontSize: 18, color: C.muted, lineHeight: 1 }}>‹</span>
+              <span style={{ fontFamily: F, fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', color: C.muted }}>HOME</span>
+              <span style={{ fontFamily: F, fontSize: 12, color: C.dim }}>/</span>
+              <span style={{ fontFamily: F, fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: '0.02em' }}>{titleOf}</span>
+            </button>
+          )}
           <div style={{ flex: 1 }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontFamily: F, fontSize: 12, color: streak > 0 ? C.amber : C.dim }}><b style={{ fontSize: 15, fontWeight: 800 }}>{streak}</b> <span style={{ fontSize: 9, letterSpacing: '0.1em' }}>DAY STREAK</span></span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontFamily: F, fontSize: 12, color: streak > 0 ? C.amber : C.dim }}><b style={{ fontSize: 14, fontWeight: 800 }}>{streak}</b>{!isMobile && <span style={{ fontSize: 9, letterSpacing: '0.1em' }}> DAY STREAK</span>}</span>
             <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={smallBtn}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
             <button onClick={onLock} style={smallBtn}>Lock</button>
           </div>
         </header>
 
-        {/* mobile top bar */}
-        <div className="topbar-m">
-          <Ember size={22} color={C.blue} />
-          <span style={{ fontFamily: F, fontSize: 15, fontWeight: 800, letterSpacing: '0.16em', color: C.text }}>FORGE</span>
-          {profileName && <span style={{ fontFamily: F, fontSize: 11, color: C.dim }}>/ {profileName}</span>}
-          <div style={{ flex: 1 }} />
-          <span style={{ fontFamily: F, fontSize: 12, color: streak > 0 ? C.amber : C.dim, fontWeight: 700 }}>{streak}</span>
-          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} style={smallBtn}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
-          <button onClick={onLock} style={smallBtn}>Lock</button>
-        </div>
-
-        <main className="main-pad" style={{ position: 'relative', zIndex: 1, maxWidth: 1080, margin: '0 auto', padding: '30px 36px 70px', opacity: ready ? 1 : 0, transition: 'opacity 0.5s ease' }}>
-          {view === 'calendar' && <WeeklyCalendar weekOffset={weekOffset} setWeekOffset={setWeekOffset} events={events} onEventsChange={changeEvents} isMobile={isMobile} theme={theme} />}
-          {view === 'today' && <TodayView data={data} setData={setData} events={events} />}
-          {view === 'me' && <MeView me={me} setMe={setMe} applyWeek={applyWeek} isMobile={isMobile} />}
-          {view === 'money' && <MoneyView finance={finance} setFinance={setFinance} isMobile={isMobile} />}
-          {view === 'goals' && <GoalsView goals={goals} setGoals={setGoals} vision={vision} setVision={setVision} finance={finance} me={me} />}
-          {view === 'avoiding' && <AvoidingView avoiding={avoiding} setAvoiding={setAvoiding} scheduleBlock={scheduleBlock} addToToday={addToToday} />}
-          {view === 'journal' && <JournalView vision={vision} setVision={setVision} data={data} />}
+        <main className="main-pad" style={{ position: 'relative', zIndex: 1, maxWidth: 1080, margin: '0 auto', padding: isHub ? '34px 28px 80px' : '26px 36px 90px', opacity: ready ? 1 : 0, transition: 'opacity 0.5s ease' }}>
+          {isHub ? (
+            <HubView go={setView} me={me} data={data} events={events} finance={finance} goals={goals} avoiding={avoiding} vision={vision} streak={streak} journalDue={journalDue} isMobile={isMobile} />
+          ) : (
+            <div key={view} style={{ animation: 'zoomEnter 0.34s cubic-bezier(.2,.8,.2,1)' }}>
+              {view === 'calendar' && <WeeklyCalendar weekOffset={weekOffset} setWeekOffset={setWeekOffset} events={events} onEventsChange={changeEvents} isMobile={isMobile} theme={theme} />}
+              {view === 'today' && <TodayView data={data} setData={setData} events={events} />}
+              {view === 'me' && <MeView me={me} setMe={setMe} applyWeek={applyWeek} isMobile={isMobile} />}
+              {view === 'money' && <MoneyView finance={finance} setFinance={setFinance} isMobile={isMobile} />}
+              {view === 'goals' && <GoalsView goals={goals} setGoals={setGoals} vision={vision} setVision={setVision} finance={finance} me={me} />}
+              {view === 'avoiding' && <AvoidingView avoiding={avoiding} setAvoiding={setAvoiding} scheduleBlock={scheduleBlock} addToToday={addToToday} />}
+              {view === 'journal' && <JournalView vision={vision} setVision={setVision} data={data} />}
+            </div>
+          )}
         </main>
-
-        {/* mobile bottom nav */}
-        <div className="bottom-nav">
-          {NAV.map(([id]) => {
-            const active = view === id
-            const short = { calendar: 'Plan', today: 'Today', me: 'Me', money: 'Money', goals: 'Goals', avoiding: 'Avoid', journal: 'Log' }[id]
-            return (
-              <button key={id} onClick={() => setView(id)}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: active ? C.blue : 'transparent' }} />
-                <span style={{ fontFamily: F, fontSize: 9, color: active ? C.blue : C.muted, fontWeight: active ? 700 : 400 }}>{short}</span>
-                {id === 'journal' && journalDue && !active && <div style={{ position: 'absolute', top: 4, right: '22%', width: 6, height: 6, borderRadius: '50%', background: C.red }} />}
-              </button>
-            )
-          })}
-        </div>
       </div>
     </>
   )
