@@ -126,6 +126,7 @@ function buildWeekTemplate(me) {
 }
 
 const wordCount = s => (s || '').trim().split(/\s+/).filter(Boolean).length
+const dayIndex = () => { const n = new Date(); return Math.floor((n - new Date(n.getFullYear(), 0, 0)) / 86400000) }
 
 const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAYS_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -191,6 +192,11 @@ const CSS = `
   .hubtile:active{transform:translateY(-1px) scale(0.99)}
   .mecard{position:relative}
   .mecard::before{content:'';position:absolute;inset:-1px;border-radius:20px;padding:1px;background:linear-gradient(160deg,var(--holo),transparent 45%,transparent 60%,var(--holo));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:0.5;pointer-events:none}
+  .jbody{font-family:${F};font-size:14.5px;line-height:1.75;color:var(--text);white-space:pre-wrap;margin:0}
+  .jbody.drop::first-letter{font-size:2.7em;font-weight:800;float:left;line-height:0.82;padding:2px 8px 0 0;color:var(--holo)}
+  .jpage{position:relative;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--holo);border-radius:4px;box-shadow:var(--card-shadow)}
+  .segtab{transition:color .15s ease}
+  .meidcard{background:linear-gradient(135deg,var(--surface2),var(--surface));border:1px solid var(--border2)}
   @keyframes modalIn{from{opacity:0;transform:scale(0.97)}to{opacity:1;transform:scale(1)}}
   @keyframes dotPulse{0%,100%{opacity:0.4}50%{opacity:1}}
   @keyframes slideIn{from{opacity:0}to{opacity:1}}
@@ -1000,47 +1006,133 @@ function MotivationMode({ images, onClose }) {
 // ════════════════════════════════════════════════════════════════════════════════
 // JOURNAL
 // ════════════════════════════════════════════════════════════════════════════════
+const MOODS = [['rough', 'var(--red)'], ['low', 'var(--amber)'], ['ok', 'var(--muted)'], ['good', 'var(--holo)'], ['great', 'var(--green)']]
+const PROMPTS = [
+  'What did you avoid today — and what did it cost you?',
+  'What went right that you should repeat?',
+  'Where did you show discipline? Where did you fold?',
+  'What are you grateful for right now?',
+  'What did you learn — about work, people, or yourself?',
+  'If today repeated for a year, where would it take you?',
+  'What is one thing you can do better tomorrow?',
+  'Who did you help, and who helped you?',
+  'What is weighing on you that you haven\'t said out loud?',
+  'What did progress look like today, even if small?',
+]
+const normalizeJournal = arr => (arr || []).map(e => ({ id: e.id || ('j_' + (e.date || '') + '_' + (e.ts || Math.round(Math.random() * 1e6))), title: e.title || '', mood: e.mood || '', edited: e.edited || 0, ...e }))
+
 function JournalView({ vision, setVision, data }) {
-  const journal = vision.journal || []
-  const todayEntry = journal.find(e => e.date === todayKey())
-  const [text, setText] = useState(todayEntry?.text || '')
-  const now = new Date()
-  const nightMode = now.getHours() >= 21
+  const entries = useMemo(() => normalizeJournal(vision.journal).sort((a, b) => (b.ts || 0) - (a.ts || 0)), [vision.journal])
+  const [editId, setEditId] = useState(null)
+  const [title, setTitle] = useState('')
+  const [text, setText] = useState('')
+  const [mood, setMood] = useState('')
+  const [q, setQ] = useState('')
+  const [promptIdx, setPromptIdx] = useState(() => dayIndex() % PROMPTS.length)
+  const [flash, setFlash] = useState(null)
+  const composerRef = useRef()
+  const ping = m => { setFlash(m); setTimeout(() => setFlash(null), 1700) }
+
   const wc = wordCount(text)
-  const required = 150
-  const done = wc >= required
-  const save = () => {
-    const entry = { date: todayKey(), text, ts: Date.now() }
-    const next = journal.some(e => e.date === todayKey()) ? journal.map(e => e.date === todayKey() ? entry : e) : [entry, ...journal]
+  const now = new Date()
+  const writeStreak = (() => {
+    const days = new Set(entries.map(e => e.date))
+    let s = 0; const d = new Date(); d.setHours(0, 0, 0, 0)
+    for (let i = 0; i < 400; i++) { const k = d.toISOString().slice(0, 10); if (days.has(k)) s++; else if (i > 0) break; d.setDate(d.getDate() - 1) }
+    return s
+  })()
+  const totalWords = entries.reduce((a, e) => a + wordCount(e.text), 0)
+
+  const commit = () => {
+    if (!text.trim() && !title.trim()) { ping('Write something first'); return }
+    let next
+    if (editId) next = entries.map(e => e.id === editId ? { ...e, title: title.trim(), text, mood, edited: Date.now() } : e)
+    else next = [{ id: uid('j'), date: todayKey(), ts: Date.now(), title: title.trim(), text, mood }, ...entries]
     setVision(v => ({ ...v, journal: next }))
+    setEditId(null); setTitle(''); setText(''); setMood('')
+    ping(editId ? 'Entry updated' : 'Entry posted')
   }
-  useEffect(() => { const i = setTimeout(save, 500); return () => clearTimeout(i) }, [text])
-  const past = journal.filter(e => e.date !== todayKey()).sort((a, b) => (b.ts || 0) - (a.ts || 0))
+  const startEdit = e => { setEditId(e.id); setTitle(e.title || ''); setText(e.text || ''); setMood(e.mood || ''); if (composerRef.current) composerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
+  const cancelEdit = () => { setEditId(null); setTitle(''); setText(''); setMood('') }
+  const del = id => { if (!confirmSafe('Delete this entry for good?')) return; setVision(v => ({ ...v, journal: entries.filter(e => e.id !== id) })); if (editId === id) cancelEdit() }
+  const usePrompt = () => { const p = PROMPTS[promptIdx]; setText(t => t ? t + '\n\n' + p + '\n' : p + '\n'); setPromptIdx(i => (i + 1) % PROMPTS.length) }
+
+  const filtered = q.trim() ? entries.filter(e => (e.text + ' ' + e.title).toLowerCase().includes(q.toLowerCase())) : entries
+  const moodDot = m => { const f = MOODS.find(x => x[0] === m); return f ? f[1] : null }
+
   return (
-    <div style={{ maxWidth: 680, margin: '0 auto', animation: 'fadeUp 0.3s ease' }}>
-      <H1>Journal</H1>
-      <p style={{ fontFamily: F, fontSize: 11, color: C.muted, margin: '6px 0 18px', letterSpacing: '0.06em', textTransform: 'uppercase' }}>End the day honest. Even when it was a bad one.</p>
-      <Panel style={{ padding: '18px 20px', marginBottom: 20 }}>
-        <div style={{ fontFamily: F, fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Tonight&rsquo;s reflection</div>
-        <div style={{ fontFamily: F, fontSize: 11.5, color: C.muted, marginBottom: 12 }}>{nightMode ? 'Write at least 150 words about today — the good, the bad, the honest.' : 'Come back after 9pm to close out the day. But you can start now.'}</div>
-        <textarea value={text} onChange={e => setText(e.target.value)} rows={9} placeholder="What actually happened today? What did you avoid, face, feel, learn?" style={{ ...fld, fontSize: 14, padding: 14, lineHeight: 1.6 }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-          <div style={{ height: 5, flex: 1, background: C.surface2, borderRadius: 3, overflow: 'hidden', marginRight: 12 }}><div style={{ height: '100%', width: Math.min(100, wc / required * 100) + '%', background: done ? C.green : C.amber, borderRadius: 3 }} /></div>
-          <span style={{ fontFamily: F, fontSize: 11, color: done ? C.green : C.muted }}>{wc}/{required} words {done ? '✓' : ''}</span>
+    <div style={{ maxWidth: 700, margin: '0 auto', animation: 'fadeUp 0.3s ease' }}>
+      {flash && <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', zIndex: 2000, background: C.surface3, border: `1px solid ${C.border2}`, borderRadius: 4, padding: '10px 20px', fontFamily: F, fontSize: 12, color: C.text, boxShadow: 'var(--card-shadow-sel)' }}>{flash}</div>}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+        <div>
+          <H1>The Log</H1>
+          <p style={{ fontFamily: F, fontSize: 11, color: C.muted, marginTop: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Your book. End every day honest.</p>
         </div>
-      </Panel>
-      {past.length > 0 && (
-        <>
-          <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, marginBottom: 10 }}>Past entries</div>
-          {past.map(e => (
-            <Panel key={e.date} style={{ padding: '14px 16px', marginBottom: 10 }}>
-              <div style={{ fontFamily: F, fontSize: 10.5, color: C.dim, marginBottom: 6 }}>{new Date(e.ts || e.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-              <div style={{ fontFamily: F, fontSize: 13, color: C.muted, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{e.text}</div>
-            </Panel>
+        <div style={{ display: 'flex', gap: 18 }}>
+          {[[entries.length, 'entries'], [writeStreak, 'day streak'], [totalWords.toLocaleString(), 'words']].map(([v, l]) => (
+            <div key={l} style={{ textAlign: 'center' }}><div style={{ fontFamily: F, fontSize: 20, fontWeight: 800, color: l === 'day streak' && writeStreak > 0 ? C.amber : C.text }}>{v}</div><div style={{ fontFamily: F, fontSize: 8.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.dim }}>{l}</div></div>
           ))}
-        </>
+        </div>
+      </div>
+
+      {/* composer */}
+      <div ref={composerRef} className="meidcard" style={{ borderRadius: 6, padding: '18px 20px', marginBottom: 22, boxShadow: 'var(--card-shadow)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontFamily: F, fontSize: 15, fontWeight: 800 }}>{editId ? 'Editing entry' : now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+          {editId && <button onClick={cancelEdit} style={{ background: 'none', border: 'none', color: C.muted, fontSize: 12, cursor: 'pointer' }}>cancel edit</button>}
+        </div>
+        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title (optional)" style={{ ...fld, fontSize: 16, fontWeight: 700, marginBottom: 10 }} />
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={8} placeholder="What actually happened today? What did you face, feel, learn?" style={{ ...fld, fontSize: 14.5, padding: 14, lineHeight: 1.7 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+          <span style={{ fontFamily: F, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim }}>Mood</span>
+          {MOODS.map(([m, col]) => (
+            <button key={m} onClick={() => setMood(mood === m ? '' : m)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: mood === m ? C.surface3 : 'transparent', border: `1px solid ${mood === m ? col : C.border}`, borderRadius: 20, padding: '4px 10px', cursor: 'pointer' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: col }} />
+              <span style={{ fontFamily: F, fontSize: 11, color: mood === m ? C.text : C.muted, textTransform: 'capitalize' }}>{m}</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ background: C.surface2, borderRadius: 4, padding: '10px 12px', margin: '12px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ flex: 1, fontFamily: F, fontSize: 12.5, color: C.muted, fontStyle: 'italic' }}>{PROMPTS[promptIdx]}</span>
+          <button onClick={usePrompt} style={obtn(C.holo)}>Use</button>
+          <button onClick={() => setPromptIdx(i => (i + 1) % PROMPTS.length)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 15, cursor: 'pointer' }} title="Another prompt">↻</button>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontFamily: F, fontSize: 11, color: wc >= 150 ? C.green : C.muted }}>{wc} words{wc >= 150 ? ' · a full day ✓' : ''}</span>
+          <button onClick={commit} style={{ fontFamily: F, fontSize: 13, fontWeight: 800, padding: '10px 22px', borderRadius: 4, cursor: 'pointer', border: 'none', background: C.blue, color: '#0b0b0c' }}>{editId ? 'Save changes' : 'Post entry'}</button>
+        </div>
+      </div>
+
+      {/* search */}
+      {entries.length > 3 && (
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search your entries…" style={{ ...fld, marginBottom: 16 }} />
       )}
-      {data && <div style={{ marginTop: 28 }}><IntelView data={data} embed /></div>}
+
+      {/* entries as book pages */}
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '30px 0', fontFamily: F, fontSize: 13, color: C.dim }}>{q ? 'No entries match that.' : 'No entries yet. Write your first one above.'}</div>
+      ) : filtered.map((e, i) => (
+        <div key={e.id} className="jpage" style={{ padding: '18px 20px', marginBottom: 14, borderLeftColor: moodDot(e.mood) || 'var(--holo)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+            <div>
+              <div style={{ fontFamily: F, fontSize: 10.5, color: C.dim, letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 7 }}>
+                {e.mood && <span style={{ width: 8, height: 8, borderRadius: '50%', background: moodDot(e.mood) }} />}
+                {new Date(e.ts || e.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                {e.edited ? ' · edited' : ''}
+              </div>
+              {e.title && <div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: C.text, marginTop: 4, letterSpacing: '-0.01em' }}>{e.title}</div>}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button onClick={() => startEdit(e)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 3, color: C.muted, fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>Edit</button>
+              <button onClick={() => del(e.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 15, cursor: 'pointer' }}>×</button>
+            </div>
+          </div>
+          <p className={'jbody' + (e.title ? '' : ' drop')}>{e.text}</p>
+        </div>
+      ))}
+
+      {data && <div style={{ marginTop: 30 }}><IntelView data={data} embed /></div>}
     </div>
   )
 }
@@ -1054,13 +1146,45 @@ function MeView({ me, setMe, applyWeek, isMobile }) {
   const [tab, setTab] = useState('body')
   const [flash, setFlash] = useState(null)
   const ping = m => { setFlash(m); setTimeout(() => setFlash(null), 1800) }
+  const weighIns = (me.weighIns || []).slice().sort((a, b) => a.date.localeCompare(b.date))
+  const curW = weighIns.length ? weighIns[weighIns.length - 1].lbs : me.startWeight
+  const span = me.startWeight - me.goalWeight
+  const pct = span > 0 ? Math.min(100, Math.round((me.startWeight - curW) / span * 100)) : 0
+  const es = (me.languages || []).find(l => l.id === 'es')
+  const vitals = [
+    ['Height', `5'${me.heightIn % 12}"`],
+    ['Weight', curW + ' lb'],
+    ['Goal', me.goalWeight + ' lb'],
+    ['Spanish', es ? LEVELS[es.level] : '—'],
+  ]
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', animation: 'fadeUp 0.3s ease', paddingBottom: 20 }}>
-      {flash && <div style={{ position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)', zIndex: 2000, background: C.surface3, border: `1px solid ${C.border2}`, borderRadius: 3, padding: '9px 18px', fontFamily: F, fontSize: 12, color: C.text, boxShadow: 'var(--card-shadow-sel)' }}>{flash}</div>}
-      <H1>Me</H1>
-      <div style={{ display: 'flex', gap: 4, overflowX: 'auto', padding: '14px 0 0', marginBottom: 20, borderBottom: `1px solid ${C.border}` }}>
+    <div style={{ maxWidth: 920, margin: '0 auto', animation: 'fadeUp 0.3s ease', paddingBottom: 20 }}>
+      {flash && <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', zIndex: 2000, background: C.surface3, border: `1px solid ${C.border2}`, borderRadius: 4, padding: '10px 20px', fontFamily: F, fontSize: 12, color: C.text, boxShadow: 'var(--card-shadow-sel)' }}>{flash}</div>}
+
+      {/* identity dossier band */}
+      <div className="meidcard" style={{ borderRadius: 16, padding: isMobile ? '18px' : '22px 26px', marginBottom: 18, display: 'flex', gap: isMobile ? 16 : 24, alignItems: 'center', flexDirection: isMobile ? 'column' : 'row', position: 'relative', overflow: 'hidden', boxShadow: '0 16px 44px rgba(0,0,0,0.4)' }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 60% 80% at 12% 30%, var(--holoDim), transparent 60%)', pointerEvents: 'none' }} />
+        <div style={{ width: isMobile ? 108 : 124, flexShrink: 0, zIndex: 1 }}><HoloFigure current={curW} start={me.startWeight} goal={me.goalWeight} /></div>
+        <div style={{ flex: 1, minWidth: 0, zIndex: 1, textAlign: isMobile ? 'center' : 'left' }}>
+          <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.28em', textTransform: 'uppercase', color: C.holo, marginBottom: 4 }}>Operative File</div>
+          <div style={{ fontFamily: F, fontSize: 'clamp(22px,4vw,30px)', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1 }}>{me.career?.current?.title || 'Program Coordinator'}</div>
+          <div style={{ fontFamily: F, fontSize: 13, color: C.muted, marginTop: 4 }}>{me.career?.current?.company || 'CLEAResult'} · en route to the United Nations</div>
+          <div style={{ display: 'flex', gap: isMobile ? 12 : 20, marginTop: 14, flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-start' }}>
+            {vitals.map(([l, v]) => (
+              <div key={l}><div style={{ fontFamily: F, fontSize: 16, fontWeight: 800, color: C.text }}>{v}</div><div style={{ fontFamily: F, fontSize: 8.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim }}>{l}</div></div>
+            ))}
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F, fontSize: 10, color: C.dim, marginBottom: 4 }}><span>CUT PROGRESS</span><span>{pct}% · {me.startWeight}→{me.goalWeight}</span></div>
+            <div style={{ height: 6, background: C.surface3, borderRadius: 3, overflow: 'hidden', maxWidth: isMobile ? '100%' : 320, margin: isMobile ? '0 auto' : 0 }}><div style={{ height: '100%', width: pct + '%', background: 'linear-gradient(90deg,var(--holo),var(--green))', borderRadius: 3 }} /></div>
+          </div>
+        </div>
+      </div>
+
+      {/* segmented pill tabs */}
+      <div style={{ display: 'flex', gap: 4, overflowX: 'auto', padding: 4, marginBottom: 20, background: C.surface2, borderRadius: 10, border: `1px solid ${C.border}` }}>
         {ME_TABS.map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} style={{ position: 'relative', fontFamily: F, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '10px 13px', cursor: 'pointer', border: 'none', background: 'transparent', color: tab === id ? C.blue : C.muted, borderBottom: tab === id ? `2px solid ${C.blue}` : '2px solid transparent', whiteSpace: 'nowrap' }}>{label}</button>
+          <button key={id} className="segtab" onClick={() => setTab(id)} style={{ flex: isMobile ? '0 0 auto' : 1, fontFamily: F, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '9px 14px', cursor: 'pointer', border: 'none', borderRadius: 7, background: tab === id ? C.surface : 'transparent', color: tab === id ? C.text : C.muted, boxShadow: tab === id ? 'var(--card-shadow)' : 'none', whiteSpace: 'nowrap' }}>{label}</button>
         ))}
       </div>
       {tab === 'body' && <BodyTab me={me} setMe={setMe} isMobile={isMobile} />}
