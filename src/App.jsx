@@ -197,6 +197,9 @@ const CSS = `
   .jpage{position:relative;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--holo);border-radius:4px;box-shadow:var(--card-shadow)}
   .segtab{transition:color .15s ease}
   .meidcard{background:linear-gradient(135deg,var(--surface2),var(--surface));border:1px solid var(--border2)}
+  @keyframes blink{0%,45%{opacity:1}50%,95%{opacity:0.25}100%{opacity:1}}
+  .ringbtn{transition:transform .18s ease}
+  .ringbtn:hover{transform:translateY(-2px) scale(1.03)}
   @keyframes modalIn{from{opacity:0;transform:scale(0.97)}to{opacity:1;transform:scale(1)}}
   @keyframes dotPulse{0%,100%{opacity:0.4}50%{opacity:1}}
   @keyframes slideIn{from{opacity:0}to{opacity:1}}
@@ -1688,6 +1691,39 @@ const NAV = [['calendar', 'Calendar'], ['today', 'Today'], ['me', 'Me'], ['money
 // ════════════════════════════════════════════════════════════════════════════════
 // HUB — Me centerpiece, sections orbiting
 // ════════════════════════════════════════════════════════════════════════════════
+// ── circular progress ring ──
+function Ring({ pct, size = 74, stroke = 7, color, value, unit, label, onClick }) {
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r
+  const off = c * (1 - Math.max(0, Math.min(1, (pct || 0) / 100)))
+  return (
+    <button onClick={onClick} className="ringbtn" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: onClick ? 'pointer' : 'default', padding: 0 }}>
+      <div style={{ position: 'relative', width: size, height: size }}>
+        <svg width={size} height={size}>
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--surface3)" strokeWidth={stroke} />
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off} transform={`rotate(-90 ${size / 2} ${size / 2})`} style={{ transition: 'stroke-dashoffset 0.9s cubic-bezier(.2,.8,.2,1)' }} />
+        </svg>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontFamily: F, fontSize: size * 0.25, fontWeight: 800, color: C.text, lineHeight: 1, letterSpacing: '-0.02em' }}>{value}</div>
+          {unit && <div style={{ fontFamily: F, fontSize: 8, color: C.dim, letterSpacing: '0.06em', marginTop: 1 }}>{unit}</div>}
+        </div>
+      </div>
+      <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>{label}</div>
+    </button>
+  )
+}
+
+function HubClock() {
+  const [t, setT] = useState(new Date())
+  useEffect(() => { const i = setInterval(() => setT(new Date()), 1000); return () => clearInterval(i) }, [])
+  const h = t.getHours() % 12 || 12, m = String(t.getMinutes()).padStart(2, '0'), s = String(t.getSeconds()).padStart(2, '0')
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+      <span style={{ fontFamily: F, fontSize: 'clamp(38px,7vw,60px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1 }}>{h}<span style={{ animation: 'blink 2s step-end infinite' }}>:</span>{m}</span>
+      <span style={{ fontFamily: F, fontSize: 15, fontWeight: 600, color: C.muted }}>{s} {t.getHours() >= 12 ? 'PM' : 'AM'}</span>
+    </div>
+  )
+}
+
 function HubView({ go, me, data, events, finance, goals, avoiding, vision, streak, journalDue, isMobile }) {
   const todayStr = todayKey()
   const dd = data[todayStr] || { done: {}, personal: [] }
@@ -1697,79 +1733,119 @@ function HubView({ go, me, data, events, finance, goals, avoiding, vision, strea
   const scheduled = events.filter(ev => shouldShow(ev, today) && !ev.allDay).sort((a, b) => (a.startH + a.startM / 60) - (b.startH + b.startM / 60))
   const doneToday = scheduled.filter(ev => dd.done?.[ev.id]).length + (dd.personal || []).filter(p => p.done).length
   const totalToday = scheduled.length + (dd.personal || []).length
-  const nowH = today.getHours() + today.getMinutes() / 60
-  const nextBlock = scheduled.find(ev => ev.startH + (ev.startM || 0) / 60 >= nowH)
+  const todayPct = totalToday ? Math.round(doneToday / totalToday * 100) : 0
+  const nowMin = today.getHours() * 60 + today.getMinutes()
+  const nextBlock = scheduled.find(ev => (ev.startH * 60 + (ev.startM || 0)) >= nowMin && !dd.done?.[ev.id])
+  const minsUntil = nextBlock ? (nextBlock.startH * 60 + (nextBlock.startM || 0)) - nowMin : null
+  const untilLabel = minsUntil == null ? '' : minsUntil <= 0 ? 'now' : minsUntil < 60 ? `in ${minsUntil}m` : `in ${Math.floor(minsUntil / 60)}h ${minsUntil % 60}m`
   const debts = finance.debts || []
   const debtLeft = debts.reduce((a, d) => a + Number(d.balance || 0), 0)
   const startDebt = debts.reduce((a, d) => a + Number(d.startBalance || d.balance || 0), 0)
   const debtPct = startDebt > 0 ? Math.round((startDebt - debtLeft) / startDebt * 100) : 0
+  const cutSpan = me.startWeight - me.goalWeight
+  const cutPct = cutSpan > 0 ? Math.min(100, Math.round((me.startWeight - curW) / cutSpan * 100)) : 0
+  const lbLost = Math.max(0, me.startWeight - curW)
   const chainPct = (() => { const gs = goals.chain || []; if (!gs.length) return 0; const per = gs.map(g => { const t = g.ms.length; return t ? g.ms.filter(m => m.done).length / t : 0 }); return Math.round(per.reduce((a, b) => a + b, 0) / gs.length * 100) })()
   const nextMs = (() => { for (const g of (goals.chain || [])) { const m = g.ms.find(x => !x.done); if (m) return g.title + ' — ' + m.text } return 'All milestones cleared' })()
   const avoidCount = (avoiding || []).filter(a => !a.done).length
   const journalEntries = (vision.journal || []).length
 
-  const tiles = [
-    { id: 'calendar', area: 'calendar', label: 'Schedule', accent: C.blue, stat: nextBlock ? 'Next · ' + nextBlock.title : (scheduled.length ? scheduled.length + ' blocks today' : 'Open week'), sub: nextBlock ? t12(nextBlock.startH, nextBlock.startM) : 'plan your week' },
-    { id: 'today', area: 'today', label: 'Today', accent: C.green, stat: totalToday ? doneToday + ' / ' + totalToday + ' done' : 'Nothing yet', sub: 'the day in front of you', prog: totalToday ? doneToday / totalToday : 0 },
-    { id: 'money', area: 'money', label: 'Money', accent: C.red, stat: money(debtLeft, false) + ' left', sub: debtPct + '% to debt-free', prog: debtPct / 100 },
-    { id: 'goals', area: 'goals', label: 'Goals', accent: C.amber, stat: chainPct + '% up the chain', sub: nextMs, prog: chainPct / 100 },
-    { id: 'avoiding', area: 'avoiding', label: 'Avoiding', accent: C.holo, stat: avoidCount ? avoidCount + ' on the table' : 'Nothing dodged', sub: 'face what nags you' },
-    { id: 'journal', area: 'journal', label: 'Journal', accent: C.muted, stat: journalDue ? 'Due tonight' : journalEntries + ' entries', sub: 'close the day honest', badge: journalDue },
+  const rings = [
+    { label: 'Cut', pct: cutPct, value: lbLost.toFixed(0), unit: 'lb lost', color: C.holo, go: 'me' },
+    { label: 'Today', pct: todayPct, value: `${doneToday}/${totalToday}`, unit: 'done', color: C.blue, go: 'today' },
+    { label: 'Debt-free', pct: debtPct, value: debtPct, unit: '%', color: C.green, go: 'money' },
+    { label: 'Goals', pct: chainPct, value: chainPct, unit: '%', color: C.amber, go: 'goals' },
   ]
 
-  const Tile = t => (
-    <button key={t.id} className="hubtile" onClick={() => go(t.id)}
-      style={{ gridArea: isMobile ? undefined : t.area, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--card-shadow)', display: 'flex', flexDirection: 'column', gap: 6, minHeight: isMobile ? 110 : 132, position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: t.accent, opacity: 0.85 }} />
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontFamily: F, fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.muted }}>{t.label}</span>
-        <span style={{ color: t.accent, fontSize: 15, opacity: 0.9 }}>→</span>
+  const cards = [
+    { id: 'calendar', label: 'Schedule', accent: C.blue, big: scheduled.length ? scheduled.length : '0', sub: scheduled.length ? 'blocks today' : 'open week', foot: nextBlock ? 'Next · ' + nextBlock.title : 'nothing queued' },
+    { id: 'today', label: 'Today', accent: C.green, big: `${doneToday}/${totalToday}`, sub: 'done today', foot: totalToday ? `${todayPct}% complete` : 'add your first task', prog: todayPct },
+    { id: 'money', label: 'Money', accent: C.red, big: money(debtLeft, false), sub: 'debt remaining', foot: `${debtPct}% to debt-free`, prog: debtPct },
+    { id: 'goals', label: 'Goals', accent: C.amber, big: chainPct + '%', sub: 'up the chain', foot: nextMs, prog: chainPct },
+    { id: 'avoiding', label: 'Avoiding', accent: C.holo, big: avoidCount, sub: avoidCount === 1 ? 'thing on the table' : 'things on the table', foot: avoidCount ? 'face one today' : 'clear — nothing dodged' },
+    { id: 'journal', label: 'Journal', accent: C.muted, big: journalEntries, sub: journalEntries === 1 ? 'entry' : 'entries', foot: journalDue ? 'Due tonight' : 'close the day honest', badge: journalDue },
+  ]
+
+  const Card = c => (
+    <button key={c.id} className="hubtile" onClick={() => go(c.id)}
+      style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 18px', boxShadow: 'var(--card-shadow)', display: 'flex', flexDirection: 'column', gap: 4, minHeight: 128, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 2, background: c.accent, opacity: 0.8 }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+        <span style={{ fontFamily: F, fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.muted }}>{c.label}</span>
+        <span style={{ color: c.accent, fontSize: 14 }}>→</span>
       </div>
-      <div style={{ fontFamily: F, fontSize: 'clamp(17px,2.2vw,21px)', fontWeight: 800, color: C.text, lineHeight: 1.1, letterSpacing: '-0.01em' }}>{t.stat}</div>
-      <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim, marginTop: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sub}</div>
-      {t.prog != null && <div style={{ height: 4, background: C.surface2, borderRadius: 3, overflow: 'hidden' }}><div style={{ height: '100%', width: Math.round(t.prog * 100) + '%', background: t.accent, borderRadius: 3 }} /></div>}
-      {t.badge && <span style={{ position: 'absolute', top: 16, right: 34, width: 7, height: 7, borderRadius: '50%', background: C.red, animation: 'dotPulse 1.6s ease-in-out infinite' }} />}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span style={{ fontFamily: F, fontSize: 'clamp(22px,3vw,28px)', fontWeight: 800, color: C.text, letterSpacing: '-0.02em', lineHeight: 1 }}>{c.big}</span>
+        <span style={{ fontFamily: F, fontSize: 11, color: C.dim }}>{c.sub}</span>
+      </div>
+      <div style={{ fontFamily: F, fontSize: 11.5, color: C.dim, marginTop: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.foot}</div>
+      {c.prog != null && <div style={{ height: 4, background: C.surface2, borderRadius: 3, overflow: 'hidden' }}><div style={{ height: '100%', width: c.prog + '%', background: c.accent, borderRadius: 3, transition: 'width .6s ease' }} /></div>}
+      {c.badge && <span style={{ position: 'absolute', top: 14, right: 32, width: 7, height: 7, borderRadius: '50%', background: C.red, animation: 'dotPulse 1.6s ease-in-out infinite' }} />}
     </button>
   )
 
-  const meCard = (
-    <button className="hubtile mecard" onClick={() => go('me')} style={{ gridArea: isMobile ? undefined : 'me', background: 'linear-gradient(180deg, var(--surface2), var(--surface))', border: `1px solid ${C.border2}`, borderRadius: 20, padding: isMobile ? '22px 20px' : '26px 22px', boxShadow: '0 20px 60px rgba(0,0,0,0.45)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 70% 50% at 50% 40%, var(--holoDim), transparent 70%)', pointerEvents: 'none' }} />
-      <div style={{ fontFamily: F, fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase', color: C.holo }}>Me</div>
-      <div style={{ width: isMobile ? 120 : 150, position: 'relative', zIndex: 1 }}><HoloFigure current={curW} start={me.startWeight} goal={me.goalWeight} /></div>
-      <div style={{ fontFamily: F, fontSize: 22, fontWeight: 800, color: C.text, letterSpacing: '-0.01em' }}>{curW}<span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}> lb → {me.goalWeight}</span></div>
-      <div style={{ display: 'flex', gap: 18, marginTop: 4 }}>
-        <div style={{ textAlign: 'center' }}><div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: C.amber }}>{streak}</div><div style={{ fontFamily: F, fontSize: 8.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim }}>streak</div></div>
-        <div style={{ textAlign: 'center' }}><div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: C.holo }}>{Math.max(0, me.startWeight - curW).toFixed(0)}</div><div style={{ fontFamily: F, fontSize: 8.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim }}>lb lost</div></div>
-        <div style={{ textAlign: 'center' }}><div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: C.green }}>{chainPct}%</div><div style={{ fontFamily: F, fontSize: 8.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.dim }}>goals</div></div>
-      </div>
-      <div style={{ fontFamily: F, fontSize: 11, color: C.muted, marginTop: 6, zIndex: 1 }}>Open my profile →</div>
-    </button>
-  )
+  const quick = [
+    ['Weigh in', 'me'], ['Add task', 'today'], ['New entry', 'journal'], ['Log payment', 'money'], ['Face something', 'avoiding'],
+  ]
 
   return (
-    <div style={{ animation: 'hubIn 0.5s cubic-bezier(.2,.8,.2,1)', maxWidth: 1000, margin: '0 auto' }}>
-      <div style={{ textAlign: 'center', marginBottom: isMobile ? 20 : 30 }}>
-        <div style={{ fontFamily: F, fontSize: 12, color: C.muted }}>{today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-        <div style={{ fontFamily: F, fontSize: 'clamp(22px,4vw,30px)', fontWeight: 800, letterSpacing: '-0.02em', marginTop: 4 }}>{greeting()}{profileFirst(me)}.</div>
+    <div style={{ animation: 'hubIn 0.5s cubic-bezier(.2,.8,.2,1)', maxWidth: 1060, margin: '0 auto' }}>
+      {/* HERO */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'flex-end', flexDirection: isMobile ? 'column' : 'row', gap: 16, marginBottom: 22 }}>
+        <div>
+          <div style={{ fontFamily: F, fontSize: 12, fontWeight: 600, color: C.holo, letterSpacing: '0.04em' }}>{greeting()}.</div>
+          <HubClock />
+          <div style={{ fontFamily: F, fontSize: 12.5, color: C.muted, marginTop: 4 }}>{today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div>
+        </div>
+        <button onClick={() => go(nextBlock ? 'calendar' : 'today')} className="hubtile" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '13px 18px', minWidth: isMobile ? '100%' : 240, boxShadow: 'var(--card-shadow)', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: nextBlock ? getEvColor(nextBlock.color).border : C.dim }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: F, fontSize: 9, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.dim, marginBottom: 3 }}>{nextBlock ? 'Next up ' + untilLabel : 'Schedule'}</div>
+            <div style={{ fontFamily: F, fontSize: 15, fontWeight: 800, color: C.text }}>{nextBlock ? nextBlock.title : 'Nothing left today'}</div>
+            <div style={{ fontFamily: F, fontSize: 11, color: C.muted }}>{nextBlock ? t12(nextBlock.startH, nextBlock.startM) + ' – ' + t12(nextBlock.endH, nextBlock.endM) : 'you\'re clear'}</div>
+          </div>
+        </button>
       </div>
-      {isMobile ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {meCard}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{tiles.map(Tile)}</div>
+
+      {/* COMMAND DECK — Me + rings */}
+      <div className="mecard" style={{ background: 'linear-gradient(150deg, var(--surface2), var(--surface))', border: `1px solid ${C.border2}`, borderRadius: 20, padding: isMobile ? '22px 18px' : '26px 30px', marginBottom: 20, boxShadow: '0 22px 64px rgba(0,0,0,0.45)', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 50% 70% at 18% 40%, var(--holoDim), transparent 62%)', pointerEvents: 'none' }} />
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', gap: isMobile ? 18 : 30, position: 'relative', zIndex: 1 }}>
+          <button onClick={() => go('me')} className="ringbtn" style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <div style={{ width: isMobile ? 130 : 150 }}><HoloFigure current={curW} start={me.startWeight} goal={me.goalWeight} /></div>
+            <div style={{ fontFamily: F, fontSize: 20, fontWeight: 800, letterSpacing: '-0.01em' }}>{curW}<span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}> → {me.goalWeight} lb</span></div>
+            <div style={{ fontFamily: F, fontSize: 10.5, color: C.holo, fontWeight: 700, letterSpacing: '0.06em' }}>OPEN PROFILE →</div>
+          </button>
+          <div style={{ flex: 1, width: '100%' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: isMobile ? 16 : 8, justifyItems: 'center' }}>
+              {rings.map(r => <Ring key={r.label} pct={r.pct} value={r.value} unit={r.unit} label={r.label} color={r.color} onClick={() => go(r.go)} size={isMobile ? 78 : 88} />)}
+            </div>
+            <button onClick={() => go('goals')} style={{ width: '100%', marginTop: 20, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontFamily: F, fontSize: 8.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.amber, border: `1px solid ${C.amber}`, borderRadius: 3, padding: '3px 7px', flexShrink: 0 }}>Next</span>
+              <span style={{ flex: 1, fontFamily: F, fontSize: 12.5, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nextMs}</span>
+              <span style={{ color: C.dim, fontSize: 14 }}>→</span>
+            </button>
+          </div>
         </div>
-      ) : (
-        <div style={{ display: 'grid', gap: 16, gridTemplateColumns: '1fr 1.25fr 1fr', gridTemplateAreas: `"calendar me money" "goals me avoiding" "today me journal"` }}>
-          {Tile(tiles[0])/*calendar*/}{meCard}{Tile(tiles[2])/*money*/}
-          {Tile(tiles[3])/*goals*/}{Tile(tiles[4])/*avoiding*/}
-          {Tile(tiles[1])/*today*/}{Tile(tiles[5])/*journal*/}
-        </div>
-      )}
+      </div>
+
+      {/* SECTION CARDS */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3,1fr)', gap: isMobile ? 12 : 16, marginBottom: 20 }}>
+        {cards.map(Card)}
+      </div>
+
+      {/* QUICK ACTIONS */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+        {quick.map(([label, v]) => (
+          <button key={label} onClick={() => go(v)} className="hubtile" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 20, padding: '8px 16px', cursor: 'pointer', fontFamily: F, fontSize: 12, fontWeight: 600, color: C.muted }}>{label}</button>
+        ))}
+      </div>
     </div>
   )
 }
 function greeting() { const h = new Date().getHours(); return h < 5 ? 'Still up' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening' }
 function profileFirst(me) { return '' }
+
 
 function ForgeApp({ profileName, onLock }) {
   const [booting, setBooting] = useState(true)
